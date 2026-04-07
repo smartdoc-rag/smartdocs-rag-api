@@ -1,0 +1,169 @@
+{
+    "info": {
+        "_postman_id": "b5c8f9a1-d2e3-4a7c-9f8e-1c3d6a7b9e2f",
+        "name": "user",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+        "_exporter_id": "49473233",
+        "_collection_link": "https://go.postman.co/collection/49473233-b5c8f9a1-d2e3-4a7c-9f8e-1c3d6a7b9e2f?source=collection_link"
+    },
+    "item": [
+        {
+            "name": "get-users",
+            "request": {
+                "method": "GET",
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{access_token}}",
+                        "type": "text"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "url": {
+                    "raw": "http://{{HOST}}:{{PORT}}/api/user?page=1&page_size=20",
+                    "protocol": "http",
+                    "host": [
+                        "{{HOST}}"
+                    ],
+                    "port": "{{PORT}}",
+                    "path": [
+                        "api",
+                        "user"
+                    ],
+                    "query": [
+                        {
+                            "key": "page",
+                            "value": "1"
+                        },
+                        {
+                            "key": "page_size",
+                            "value": "20"
+                        }
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "get-user-by-id",
+            "request": {
+                "method": "GET",
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{access_token}}",
+                        "type": "text"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "url": {
+                    "raw": "http://{{HOST}}:{{PORT}}/api/user/1",
+                    "protocol": "http",
+                    "host": [
+                        "{{HOST}}"
+                    ],
+                    "port": "{{PORT}}",
+                    "path": [
+                        "api",
+                        "user",
+                        "1"
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "update-user",
+            "request": {
+                "method": "PATCH",
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{access_token}}",
+                        "type": "text"
+                    },
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json",
+                        "type": "text"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"full_name\": \"Hyan Nguyễn Updated\"\n}",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "url": {
+                    "raw": "http://{{HOST}}:{{PORT}}/api/user/1",
+                    "protocol": "http",
+                    "host": [
+                        "{{HOST}}"
+                    ],
+                    "port": "{{PORT}}",
+                    "path": [
+                        "api",
+                        "user",
+                        "1"
+                    ]
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "delete-user",
+            "request": {
+                "method": "DELETE",
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{access_token}}",
+                        "type": "text"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "url": {
+                    "raw": "http://{{HOST}}:{{PORT}}/api/user/1",
+                    "protocol": "http",
+                    "host": [
+                        "{{HOST}}"
+                    ],
+                    "port": "{{PORT}}",
+                    "path": [
+                        "api",
+                        "user",
+                        "1"
+                    ]
+                }
+            },
+            "response": []
+        }
+    ]
+}

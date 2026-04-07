@@ -1,0 +1,6 @@
+from django.apps import AppConfig
+
+
+class ModelsConfig(AppConfig):
+    name = "src.models"
+    verbose_name = "Models"
