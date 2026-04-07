@@ -19,7 +19,10 @@ Backend API cho dự án SmartDoc AI, xây dựng bằng Django + Django REST Fr
 
 ```bash
 python -m venv .venv
+# Linux:
 source .venv/bin/activate
+# Windows: 
+.venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env
 python manage.py migrate
@@ -88,3 +91,29 @@ refactor(document): simplify repository query path
 Backend scope bắt buộc là tên model (ví dụ: `user`, `refresh_token`, `document`, `question`).
 
 Xem quy định đầy đủ tại `CONTRIBUTING.md`.
+
+## 6. Các lệnh hữu ích khác
+
+```bash
+# Tạo và áp dụng migrations
+python manage.py makemigrations models
+python manage.py migrate
+
+# Chạy development server
+python manage.py runserver
+
+# Hoặc chạy với cổng tùy chỉnh
+python manage.py runserver 0.0.0.0:8000
+
+# Tạo superuser để truy cập admin (nếu cần)
+python manage.py createsuperuser
+
+# Kiểm tra migrations
+python manage.py showmigrations
+
+# Tạo migration trống
+python manage.py makemigrations models --empty --name migration_name
+
+# Xóa database và tạo lại (development)
+python manage.py reset_db
+```

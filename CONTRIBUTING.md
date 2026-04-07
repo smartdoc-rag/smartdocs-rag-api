@@ -133,3 +133,17 @@ Checklist trước khi tạo PR:
 - Commit message đúng chuẩn `type(scope): subject`.
 - Scope backend đúng theo model liên quan.
 - PR chỉ chứa thay đổi thuộc một chức năng chính.
+
+## 7. Tạo Pull Request (PR)
+
+Sau khi đã push nhánh lên remote, bạn cần tạo PR để merge code vào `dev`.
+
+1.  Truy cập vào repository trên giao diện web (GitHub, GitLab, etc.).
+2.  Hệ thống thường sẽ tự động gợi ý tạo PR từ nhánh bạn vừa push.
+3.  Nhấn vào nút "Compare & pull request".
+4.  **Quan trọng:**
+    -   **Base branch** (nhánh gốc) phải là `dev`.
+    -   **Compare branch** (nhánh so sánh) là nhánh bạn đang làm việc.
+5.  **Đặt tên PR:** Tên PR nên trùng với tên nhánh làm việc của bạn.
+    -   Ví dụ, nếu nhánh là `feat/user-login`, tên PR cũng là `feat/user-login`.
+6.  Kiểm tra lại checklist trong mô tả PR và tạo PR.
