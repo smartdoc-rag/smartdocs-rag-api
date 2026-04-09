@@ -15,7 +15,7 @@ from src.core.response import (
     success_response,
 )
 from src.core.exceptions import UnauthorizedException
-from src.core.auth import require_auth
+from src.core.auth import require_auth, require_role
 
 
 def _set_refresh_cookie(response, token: str):
@@ -64,13 +64,15 @@ class LoginView(APIView):
 
 class MeView(APIView):
     @require_auth
+    @require_role(['user'])
     def get(self, request):
-        user = user_service().get_me(request.user_id)
-        return fetched_response(data=UserResponse.from_model(user))
+        # user_obj already attached by require_auth
+        return fetched_response(data=UserResponse.from_model(request.user_obj))
 
 
 class ResetPasswordView(APIView):
     @require_auth
+    @require_role(['user'])
     def post(self, request):
         data = validate_request(ResetPasswordRequest, request.data)
         auth_service().reset_password(user_id=request.user_id, **data)

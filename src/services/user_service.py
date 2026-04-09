@@ -1,6 +1,6 @@
 from src.models.user import User
 from src.repositories.user_repository import UserRepository
-from src.core.exceptions import NotFoundException
+from src.core.exceptions import NotFoundException, ForbiddenException
 from src.core.pagination import build_pagination_meta
 
 
@@ -29,9 +29,22 @@ class UserService:
             raise NotFoundException("Không tìm thấy người dùng")
         if full_name is not None:
             user.full_name = full_name
+        self.user_repo.update(user)
+        return user
 
     def delete_user(self, user_id: int) -> None:
         user = self.user_repo.get_by_id(user_id)
         if not user:
             raise NotFoundException("Không tìm thấy người dùng")
         self.user_repo.delete(user_id)
+
+    def block_user(self, user_id: int) -> User:
+        user = self.user_repo.get_by_id(user_id)
+        if not user:
+            raise NotFoundException("Không tìm thấy người dùng")
+        # Prevent admin from blocking admin accounts
+        if user.role == 'admin':
+            raise ForbiddenException("Không thể khóa tài khoản admin")
+        user.is_active = False
+        self.user_repo.update(user)
+        return user

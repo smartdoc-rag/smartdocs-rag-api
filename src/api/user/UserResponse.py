@@ -6,6 +6,7 @@ class UserResponse(serializers.Serializer):
     email = serializers.EmailField()
     full_name = serializers.CharField()
     is_active = serializers.BooleanField()
+    role = serializers.CharField()
 
     @classmethod
     def from_model(cls, user) -> dict:
