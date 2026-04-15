@@ -14,7 +14,7 @@ class UserService:
             raise NotFoundException("Không tìm thấy người dùng")
         return user
 
-    def get_users(self, page: int = 1, page_size: int = 20) -> dict:
+    def get_all(self, page: int = 1, page_size: int = 20) -> dict:
         items, total = self.user_repo.get_all(
             skip=(page - 1) * page_size, limit=page_size
         )
@@ -42,8 +42,7 @@ class UserService:
         user = self.user_repo.get_by_id(user_id)
         if not user:
             raise NotFoundException("Không tìm thấy người dùng")
-        # Prevent admin from blocking admin accounts
-        if user.role == 'admin':
+        if user.role == "admin":
             raise ForbiddenException("Không thể khóa tài khoản admin")
         user.is_active = False
         self.user_repo.update(user)
