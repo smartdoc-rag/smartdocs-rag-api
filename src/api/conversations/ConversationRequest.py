@@ -1,19 +1,20 @@
 from rest_framework import serializers
-from core.serializers import ViSerializerMixin
+from src.core.serializers import ViSerializerMixin
 
 
 class CreateConversationRequest(ViSerializerMixin, serializers.Serializer):
+    """Request tạo conversation mới."""
     title = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    document_id = serializers.IntegerField(required=False, allow_null=True)
 
 
 class UpdateConversationRequest(ViSerializerMixin, serializers.Serializer):
-    title = serializers.CharField(max_length=255, required=True)
+    """Request cập nhật conversation."""
+    title = serializers.CharField(max_length=255, required=False, allow_blank=True)
 
 
 class AddMessageRequest(ViSerializerMixin, serializers.Serializer):
-    content = serializers.CharField(required=True)
-    role = serializers.CharField(
-        required=False,
-        default="user",
-        choices=["user", "assistant", "system"]
-    )
+    """Request thêm message vào conversation."""
+    content = serializers.CharField()
+    is_from_user = serializers.BooleanField(default=True, required=False)
+    metadata = serializers.JSONField(required=False, default=dict)

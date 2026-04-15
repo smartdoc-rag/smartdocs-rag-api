@@ -4,7 +4,8 @@ from src.services.conversation_service import ConversationService
 from src.repositories.user_repository import UserRepository
 from src.repositories.token_repository import TokenRepository
 from src.repositories.conversation_repository import ConversationRepository
-from src.repositories.message_repository import MessageRepository
+from src.repositories.conversation_message_repository import ConversationMessageRepository
+from src.repositories.document_repository import DocumentRepository
 
 
 def auth_service() -> AuthService:
@@ -18,6 +19,7 @@ def user_service() -> UserService:
 def get_conversation_service() -> ConversationService:
     return ConversationService(
         conversation_repo=ConversationRepository(),
-        message_repo=MessageRepository(),
-        user_repo=UserRepository()
+        message_repo=ConversationMessageRepository(),
+        user_repo=UserRepository(),
+        document_repo=DocumentRepository()
     )
