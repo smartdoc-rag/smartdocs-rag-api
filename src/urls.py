@@ -20,4 +20,5 @@ from django.urls import path, include
 urlpatterns = [
     path("api/auth/", include("src.api.auth.urls")),
     path("api/users/", include("src.api.user.urls")),
+    path("api/conversations/", include("src.api.conversations.urls")),
 ]
