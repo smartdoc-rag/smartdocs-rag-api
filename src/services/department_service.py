@@ -50,6 +50,6 @@ class DepartmentService:
 
     def delete(self, department_id: int) -> None:
         department = self.department_repo.get_by_id(department_id)
-        if not department:
-            raise NotFoundException(f"Không tìm thấy phòng {department.name}")
+        if department is None:
+            raise NotFoundException(f"Không tìm thấy phòng cần xóa")
         self.department_repo.delete(department)
