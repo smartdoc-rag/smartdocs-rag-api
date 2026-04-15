@@ -29,5 +29,5 @@ def updated_response(data=None, message="Cập nhật thành công", meta=None) 
     return success_response(data=data, message=message, code=200, meta=meta)
 
 
-def deleted_response(message="Xóa thành công") -> Response:
-    return success_response(data=None, message=message, code=204)
+def deleted_response(message: str = "Xóa thành công") -> Response:
+    return success_response(data=None, message=message, code=200)
