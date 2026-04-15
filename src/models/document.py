@@ -20,6 +20,11 @@ class Document(TimestampModel):
     is_processed = models.BooleanField(default=False)  # Đã được xử lý embedding chưa
     metadata = models.JSONField(default=dict, blank=True)  # Thông tin bổ sung
 
+    @property
+    def user_id(self) -> int:
+        """Convenience property to access user.id."""
+        return self.user.id
+
     def __str__(self):
         return f"{self.title} ({self.file_type})"
 

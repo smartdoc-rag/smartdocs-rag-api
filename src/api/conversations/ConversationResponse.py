@@ -47,9 +47,12 @@ class ConversationListResponse(serializers.Serializer):
     last_message = serializers.CharField(required=False, allow_null=True)
 
     @classmethod
-    def from_model(cls, conversation, message_count: int = 0, last_message: str = None) -> dict:
-        """Convert Conversation model với thông tin bổ sung."""
+    def from_model(cls, conversation) -> dict:
+        """Convert Conversation model với thông tin bổ sung từ annotations."""
         data = cls(conversation).data
-        data["message_count"] = message_count
-        data["last_message"] = last_message
+        # Sử dụng annotated fields nếu có
+        if hasattr(conversation, 'message_count'):
+            data["message_count"] = conversation.message_count
+        if hasattr(conversation, 'last_message_content'):
+            data["last_message"] = conversation.last_message_content
         return data

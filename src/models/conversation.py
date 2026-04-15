@@ -1,7 +1,6 @@
 from django.db import models
 from src.models.base import TimestampModel
 from src.models.user import User
-from src.models.document import Document
 
 
 class Conversation(TimestampModel):
@@ -16,7 +15,7 @@ class Conversation(TimestampModel):
         related_name="conversations"
     )
     document = models.ForeignKey(
-        Document,
+        "Document",  # String reference to avoid circular import
         on_delete=models.SET_NULL,
         null=True,
         blank=True,

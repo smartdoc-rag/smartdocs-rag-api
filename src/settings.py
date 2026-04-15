@@ -42,6 +42,8 @@ INSTALLED_APPS = [
     "corsheaders",
     "src.core",
     "src.models",
+    "src.api.auth",
+    "src.api.conversations",
 ]
 
 MIDDLEWARE = [

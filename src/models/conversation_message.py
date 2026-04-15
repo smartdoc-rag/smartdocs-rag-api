@@ -1,7 +1,5 @@
 from django.db import models
 from src.models.base import TimestampModel
-from src.models.conversation import Conversation
-from src.models.user import User
 
 
 class ConversationMessage(TimestampModel):
@@ -10,7 +8,7 @@ class ConversationMessage(TimestampModel):
     Mỗi message thuộc về một conversation và có thể là từ user hoặc AI.
     """
     conversation = models.ForeignKey(
-        Conversation,
+        "Conversation",  # String reference to avoid circular import
         on_delete=models.CASCADE,
         related_name="messages"
     )

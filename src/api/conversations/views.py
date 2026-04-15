@@ -40,22 +40,11 @@ class ConversationListView(APIView):
             active_only=active_only
         )
 
-        # Thêm thông tin message count và last message
-        conversations_with_extra = []
-        for conv in result["items"]:
-            message_count = service.message_repo.count_messages_by_conversation(conv.id)
-            last_msg = service.message_repo.get_last_message(conv.id)
-            last_message_content = last_msg.content[:100] + "..." if last_msg and len(last_msg.content) > 100 else (
-                last_msg.content if last_msg else None
-            )
-            
-            conversations_with_extra.append(
-                ConversationListResponse.from_model(
-                    conv,
-                    message_count=message_count,
-                    last_message=last_message_content
-                )
-            )
+        # Sử dụng annotated fields từ repository
+        conversations_with_extra = [
+            ConversationListResponse.from_model(conv)
+            for conv in result["items"]
+        ]
 
         return fetched_response(
             data=conversations_with_extra,
