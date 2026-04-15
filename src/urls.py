@@ -16,8 +16,13 @@ Including another URLconf
 """
 
 from django.urls import path, include
+from src.api.department.views import DepartmentView
 
 urlpatterns = [
     path("api/auth/", include("src.api.auth.urls")),
     path("api/users/", include("src.api.user.urls")),
+    # List endpoint without trailing slash
+    path("api/departments", DepartmentView.as_view()),
+    # Include detail endpoints with slash
+    path("api/departments/", include("src.api.department.urls")),
 ]

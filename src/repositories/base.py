@@ -16,8 +16,10 @@ class BaseRepository(Generic[ModelType]):
     def get_by_id(self, id: int) -> ModelType | None:
         return self.get_one(id=id)
 
-    def get_all(self, skip: int = 0, limit: int = 20) -> tuple[list[ModelType], int]:
-        queryset = self.model_class.objects.all()
+    def get_all(
+        self, skip: int = 0, limit: int = 20, **filters
+    ) -> tuple[list[ModelType], int]:
+        queryset = self.model_class.objects.filter(**filters).all()
         total = queryset.count()
         items = list(queryset[skip : skip + limit])
         return items, total
