@@ -64,7 +64,7 @@ class LoginView(APIView):
 
 class MeView(APIView):
     @require_auth
-    @require_role(['user'])
+    @require_role(["user"])
     def get(self, request):
         # user_obj already attached by require_auth
         return fetched_response(data=UserResponse.from_model(request.user_obj))
@@ -72,7 +72,7 @@ class MeView(APIView):
 
 class ResetPasswordView(APIView):
     @require_auth
-    @require_role(['user'])
+    @require_role(["user"])
     def post(self, request):
         data = validate_request(ResetPasswordRequest, request.data)
         auth_service().reset_password(user_id=request.user_id, **data)
