@@ -5,15 +5,17 @@ from .base import TimestampModel
 class MessageCitation(TimestampModel):
     """Trích dẫn từ file cho tin nhắn trả lời"""
 
-    message = models.ForeignKey(
-        "ResponseMessage",
-        on_delete=models.CASCADE,
-        related_name="citations"
-    )
     file = models.ForeignKey(
         "File",
         on_delete=models.CASCADE,
-        related_name="citations"
+        related_name="citations",
+        null=False
+    )
+    response_message = models.ForeignKey(
+        "ResponseMessage",
+        on_delete=models.CASCADE,
+        related_name="citations",
+        null=False
     )
     page_number = models.IntegerField()
     content_chunk = models.TextField()

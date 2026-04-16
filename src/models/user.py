@@ -4,20 +4,10 @@ from .base import TimestampModel
 
 
 class User(TimestampModel):
-    email = models.EmailField(unique=True, db_index=True)
-    password_hash = models.CharField(max_length=255)
-    full_name = models.CharField(max_length=100)
+    email = models.EmailField(unique=True, db_index=True, null=False)
+    password_hash = models.CharField(max_length=255, null=False)
+    full_name = models.CharField(max_length=100, blank=True, null=True)
     is_active = models.BooleanField(default=True)
-    role = models.CharField(
-        max_length=20,
-        choices=[("user", "User"), ("manager", "Manager"), ("admin", "Admin")],
-        default="user"
-    )
-    department = models.ForeignKey(
-        "Department",
-        on_delete=models.CASCADE,
-        related_name="users",
-    )
 
     def set_password(self, raw_password):
         self.password_hash = make_password(raw_password)
