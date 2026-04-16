@@ -5,12 +5,13 @@ from .base import TimestampModel
 class MessageStat(TimestampModel):
     """Thống kê cho tin nhắn trả lời"""
 
-    message = models.OneToOneField(
+    message = models.ForeignKey(
         "ResponseMessage",
         on_delete=models.CASCADE,
-        related_name="stat"
+        related_name="stats",
+        null=False
     )
-    word_count = models.IntegerField(default=0)
+    word_count = models.IntegerField()
 
     def __str__(self):
         return f"MessageStat {self.id} - {self.word_count} words"
