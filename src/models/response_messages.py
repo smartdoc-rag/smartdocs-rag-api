@@ -5,16 +5,18 @@ from .base import TimestampModel
 class ResponseMessage(TimestampModel):
     """Tin nhắn trả lời từ hệ thống"""
 
-    request_message = models.OneToOneField(
+    request_message = models.ForeignKey(
         "RequestMessage",
         on_delete=models.CASCADE,
-        related_name="response_message"
+        related_name="response_messages",
+        null=False
     )
-    content = models.TextField()
+    content = models.TextField(null=False)
     type = models.CharField(
         max_length=10,
         choices=[("rag", "RAG"), ("graphrag", "GraphRAG")],
-        default="rag"
+        default="rag",
+        null=False
     )
 
     def __str__(self):

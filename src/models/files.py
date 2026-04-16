@@ -5,15 +5,15 @@ from .base import TimestampModel
 class File(TimestampModel):
     """File tài liệu"""
 
+    conversation = models.ForeignKey(
+        "Conversation",
+        on_delete=models.CASCADE,
+        related_name="files",
+        null=False
+    )
     file_name = models.CharField(max_length=255)
     file_path = models.CharField(max_length=500)
     file_size = models.IntegerField()
-    department = models.ForeignKey(
-        "Department",
-        on_delete=models.CASCADE,
-        related_name="files"
-    )
-    is_selected = models.BooleanField(default=False)
     file_type = models.CharField(
         max_length=10,
         choices=[("pdf", "PDF"), ("docx", "DOCX")]

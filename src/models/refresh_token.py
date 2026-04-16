@@ -4,11 +4,10 @@ from .base import TimestampModel
 
 
 class RefreshToken(TimestampModel):
-
-    token = models.CharField(max_length=512, unique=True, db_index=True)
-    user = models.ForeignKey(
-        "User", on_delete=models.CASCADE, related_name="refresh_tokens"
+    user = models.OneToOneField(
+        "User", on_delete=models.CASCADE, related_name="refresh_token", null=False
     )
+    token = models.CharField(max_length=512, null=False)
     expires_at = models.DateTimeField()
     is_revoked = models.BooleanField(default=False)
 
