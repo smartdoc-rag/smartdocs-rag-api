@@ -23,8 +23,8 @@ class AuthService:
     def _hash_password(self, password: str) -> str:
         return make_password(password)
 
-    def _verify_password(self, password: str, hashed_password: str) -> bool:
-        return check_password(password, hashed_password)
+    def _verify_password(self, password: str, password_hash: str) -> bool:
+        return check_password(password, password_hash)
 
     def _create_access_token(self, user_id: int) -> str:
         expire = datetime.now(timezone.utc) + timedelta(
@@ -43,7 +43,7 @@ class AuthService:
         return self.user_repo.create(
             User(
                 email=data["email"],
-                hashed_password=self._hash_password(data["password"]),
+                password_hash=self._hash_password(data["password"]),
                 full_name=data["full_name"],
             )
         )
@@ -51,7 +51,7 @@ class AuthService:
     def login(self, data: dict[str, str]) -> dict:
         user = self.user_repo.get_by_email(data["email"])
         if not user or not self._verify_password(
-            data["password"], user.hashed_password
+            data["password"], user.password_hash
         ):
             raise UnauthorizedException("Tài khoản hoặc mật khẩu không đúng")
 
@@ -105,7 +105,7 @@ class AuthService:
         user = self.user_repo.get_by_id(user_id)
         if not user:
             raise NotFoundException("Không tìm thấy người dùng")
-        if not self._verify_password(old_password, user.hashed_password):
+        if not self._verify_password(old_password, user.password_hash):
             raise BadRequestException("Mật khẩu hiện tại không đúng")
-        user.hashed_password = self._hash_password(new_password)
+        user.password_hash = self._hash_password(new_password)
         self.user_repo.update(user)

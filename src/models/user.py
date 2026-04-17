@@ -7,6 +7,7 @@ class User(TimestampModel):
     email = models.EmailField(unique=True, db_index=True, null=False)
     password_hash = models.CharField(max_length=255, null=False)
     full_name = models.CharField(max_length=100, blank=True, null=True)
+    role = models.CharField(max_length=20, default='user')
     is_active = models.BooleanField(default=True)
 
     def set_password(self, raw_password):
