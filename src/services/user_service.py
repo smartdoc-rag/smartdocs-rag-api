@@ -36,7 +36,7 @@ class UserService:
         user = self.user_repo.get_by_id(user_id)
         if not user:
             raise NotFoundException("Không tìm thấy người dùng")
-        self.user_repo.delete(user_id)
+        self.user_repo.delete(user)
 
     def block_user(self, user_id: int) -> User:
         user = self.user_repo.get_by_id(user_id)
