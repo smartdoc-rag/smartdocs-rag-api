@@ -35,3 +35,6 @@ class ResponseMessageRepository(BaseRepository[ResponseMessage]):
     ) -> ResponseMessage | None:
         """Lấy response message theo ID và request_message_id"""
         return self.get_one(id=response_id, request_message_id=request_message_id)
+
+    def delete_by_request_message_id(self, request_message_id: int):
+        self.model_class.objects.filter(request_message_id=request_message_id).delete()

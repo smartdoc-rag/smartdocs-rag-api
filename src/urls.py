@@ -20,4 +20,7 @@ from django.urls import path, include
 urlpatterns = [
     path("api/auth/", include("src.api.auth.urls")),
     path("api/users/", include("src.api.user.urls")),
+    path("api/chat/", include("src.api.chat.urls")),
+    path("api/file/", include("src.api.file.urls")),
+    path("api/conversation/", include("src.api.conversation.urls")),
 ]

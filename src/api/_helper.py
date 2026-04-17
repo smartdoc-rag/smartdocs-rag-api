@@ -1,3 +1,4 @@
+import json
 from src.core.exceptions import ValidationException
 
 
@@ -14,3 +15,15 @@ def validate_request(request_class, data: dict) -> dict:
         ]
         raise ValidationException(errors=errors)
     return s.validated_data
+
+def get_body(request) -> dict:
+    """
+    Hàm hỗ trợ lấy body từ request. Mặc định xử lý JSON.
+    Nếu body rỗng hoặc lỗi parse, trả về dict rỗng.
+    """
+    try:
+        if request.body:
+            return json.loads(request.body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        pass
+    return {}

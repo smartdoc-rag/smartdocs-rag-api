@@ -42,7 +42,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "corsheaders",
     "src.core",
-    "src.models",
+    "src.models.apps.ModelsConfig",
 ]
 
 MIDDLEWARE = [
@@ -119,7 +119,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 REST_FRAMEWORK = {
-    "EXCEPTION_HANDLER": "src.core.exceptions.global_exception_handler",
+    # "EXCEPTION_HANDLER": "src.core.exceptions.global_exception_handler",
 }
 
 MIGRATION_MODULES = {
@@ -163,3 +163,5 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOW_CREDENTIALS = True
 
 # Internationalization
+
+HF_TOKEN = config("HF_TOKEN", default="")
