@@ -13,7 +13,7 @@ class UserListView(APIView):
     def get(self, request):
         page = int(request.query_params.get("page", 1))
         page_size = int(request.query_params.get("page_size", 20))
-        result = user_service().get_users(page=page, page_size=page_size)
+        result = user_service().get_all(page=page, page_size=page_size)
         return fetched_response(
             data=UserResponse.from_list(result["items"]),
             meta=result["meta"],
