@@ -50,13 +50,13 @@ class AuthService:
 
     def login(self, data: dict[str, str]) -> dict:
         user = self.user_repo.get_by_email(data["email"])
-        if not user or not self._verify_password(
-            data["password"], user.password_hash
-        ):
+        if not user or not self._verify_password(data["password"], user.password_hash):
             raise UnauthorizedException("Tài khoản hoặc mật khẩu không đúng")
 
         if not user.is_active:
             raise ForbiddenException("Tài khoản của bạn bị vô hiệu hóa")
+
+        self.token_repo.delete_by_user_id(user.id)
 
         raw_refresh = self._create_raw_refresh()
         self.token_repo.create(
