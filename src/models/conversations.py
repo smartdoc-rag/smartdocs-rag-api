@@ -6,6 +6,8 @@ class Conversation(TimestampModel):
     """Cuộc hội thoại giữa người dùng và hệ thống"""
 
     title = models.CharField(max_length=255, blank=True, null=True)
+    chunk_size = models.IntegerField(default=1500)
+    chunk_overlap = models.IntegerField(default=200)
     user = models.ForeignKey(
         "User",
         on_delete=models.CASCADE,

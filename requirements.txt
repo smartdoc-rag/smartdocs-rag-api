@@ -22,3 +22,6 @@ langchain-huggingface==1.2.1
 langchain-ollama==1.1.0
 faiss-cpu==1.13.2
 langchain-deepseek==1.0.1
+rank_bm25
+langchain-classic
+sentence-transformers

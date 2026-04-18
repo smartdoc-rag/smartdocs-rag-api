@@ -119,7 +119,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 REST_FRAMEWORK = {
-    # "EXCEPTION_HANDLER": "src.core.exceptions.global_exception_handler",
+    "EXCEPTION_HANDLER": "src.core.exceptions.global_exception_handler",
 }
 
 MIGRATION_MODULES = {
@@ -165,3 +165,4 @@ CORS_ALLOW_CREDENTIALS = True
 # Internationalization
 
 HF_TOKEN = config("HF_TOKEN", default="")
+CROSS_ENCODER_MODEL = 'cross-encoder/ms-marco-MiniLM-L-6-v2'
