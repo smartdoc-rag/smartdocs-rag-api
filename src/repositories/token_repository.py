@@ -11,6 +11,9 @@ class TokenRepository(BaseRepository[RefreshToken]):
             return token_obj
         return None
 
+    def delete_by_user_id(self, user_id: int):
+        RefreshToken.objects.filter(user_id=user_id).delete()
+
     def revoke_token(self, token_obj: RefreshToken) -> None:
         token_obj.is_revoked = True
         token_obj.save()
