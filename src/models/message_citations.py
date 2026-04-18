@@ -20,6 +20,9 @@ class MessageCitation(TimestampModel):
     page_number = models.IntegerField()
     content_chunk = models.TextField()
     relevance_score = models.FloatField(null=True, blank=True)
+    start_line = models.IntegerField(null=True, blank=True)
+    end_line = models.IntegerField(null=True, blank=True)
+    citation_marker = models.CharField(max_length=50, blank=True, help_text="Ví dụ: 【1†L5-L8】")
 
     def __str__(self):
         return f"Citation {self.id} - Page {self.page_number}"
