@@ -1,8 +1,10 @@
 # Phân tích hiện trạng SmartDoc RAG API (Django backend cho React)
 
+_Cập nhật: 2026-04-18 (re-check theo code hiện tại)_
+
 ## 1) Phạm vi kiểm tra
 
-- Nguồn đối chiếu yêu cầu: [assignment.md](assignment.md) (mục 8.2.1 -> 8.2.10).
+- Nguồn đối chiếu yêu cầu: yêu cầu assignment phần RAG backend (Q1 -> Q10).
 - Nguồn đối chiếu hiện trạng: toàn bộ mã trong workspace, không đọc thư mục .venv.
 - Bối cảnh triển khai: frontend dùng React, nên backend cần hoàn chỉnh ở dạng REST API có thể gọi độc lập.
 
@@ -14,79 +16,81 @@
 
 | Mã | Hạng mục | Trọng số | Trạng thái | Mức hoàn thành | Điểm đạt | Minh chứng chính |
 |---|---|---:|---|---:|---:|---|
-| A0 | Đóng gói backend thành API hoàn chỉnh cho React (ngoài auth/user phải có file/upload/chat/history/citation API) | 25 | Chưa đạt | 20% | 5.0 | Route hiện chỉ có [src/urls.py](src/urls.py#L21), [src/urls.py](src/urls.py#L22) |
-| Q1 | Hỗ trợ file DOCX | 6 | Làm một phần | 15% | 0.9 | Có kiểu file docx tại [src/models/files.py](src/models/files.py#L19), chưa có loader/API DOCX |
-| Q2 | Lưu lịch sử hội thoại | 8 | Làm một phần | 35% | 2.8 | Có model/repository: [src/models/conversations.py](src/models/conversations.py), [src/models/request_messages.py](src/models/request_messages.py), [src/models/response_messages.py](src/models/response_messages.py), [src/repositories/request_message_repository.py](src/repositories/request_message_repository.py), [src/repositories/response_message_repository.py](src/repositories/response_message_repository.py) |
-| Q3 | Clear History + Clear Vector Store | 5 | Chưa làm | 0% | 0.0 | Không có endpoint/service xóa lịch sử hoặc vector store |
-| Q4 | Cải thiện chunk strategy | 7 | Làm một phần | 30% | 2.1 | Có tham số chunk trong [src/services/rag/file_ingestion_service.py](src/services/rag/file_ingestion_service.py#L21), [src/services/rag/file_ingestion_service.py](src/services/rag/file_ingestion_service.py#L34), [src/services/rag/file_ingestion_service.py](src/services/rag/file_ingestion_service.py#L35) |
-| Q5 | Citation/source tracking | 8 | Làm một phần | 25% | 2.0 | Có schema citation: [src/models/message_citations.py](src/models/message_citations.py), [src/repositories/message_citation_repository.py](src/repositories/message_citation_repository.py) |
-| Q6 | Conversational RAG | 10 | Làm một phần | 20% | 2.0 | Prompt có biến history tại [src/core/rag/prompt.py](src/core/rag/prompt.py#L15), [src/core/rag/prompt.py](src/core/rag/prompt.py#L29) nhưng đang truyền rỗng ở [src/services/rag/rag_service.py](src/services/rag/rag_service.py#L25) |
-| Q7 | Hybrid search (semantic + BM25) | 8 | Chưa làm | 0% | 0.0 | Chưa có BM25/ensemble; retriever hiện chỉ similarity ở [src/services/rag/file_ingestion_service.py](src/services/rag/file_ingestion_service.py#L46) |
-| Q8 | Multi-document + metadata filtering | 10 | Làm một phần | 20% | 2.0 | Có mô hình file/scope/chọn file: [src/models/files.py](src/models/files.py), [src/models/request_selected_files.py](src/models/request_selected_files.py), nhưng chưa có retrieval filter API |
+| A0 | Đóng gói backend thành API hoàn chỉnh cho React (auth/user/file/chat/history/conversation) | 25 | Làm một phần (tiến triển mạnh) | 80% | 20.0 | Đã expose route auth/user/chat/file/conversation tại [src/urls.py](src/urls.py), cùng endpoint trong [src/api/chat/views.py](src/api/chat/views.py), [src/api/file/views.py](src/api/file/views.py), [src/api/conversation/views.py](src/api/conversation/views.py) |
+| Q1 | Hỗ trợ file DOCX | 6 | Làm một phần (khá tốt) | 80% | 4.8 | Upload DOCX + loader Docx2txt có trong [src/services/file_service.py](src/services/file_service.py), type DOCX có trong [src/models/files.py](src/models/files.py) |
+| Q2 | Lưu lịch sử hội thoại | 8 | Làm một phần (khá tốt) | 80% | 6.4 | Có lưu request/response message và API history tại [src/services/chat_service.py](src/services/chat_service.py), [src/api/chat/views.py](src/api/chat/views.py), [src/models/request_messages.py](src/models/request_messages.py), [src/models/response_messages.py](src/models/response_messages.py) |
+| Q3 | Clear History + Clear Vector Store | 5 | Làm một phần (khá tốt) | 80% | 4.0 | Có clear history ở [src/api/chat/views.py](src/api/chat/views.py), [src/services/chat_service.py](src/services/chat_service.py) và clear vector store khi clear file ở [src/api/file/views.py](src/api/file/views.py), [src/services/file_service.py](src/services/file_service.py) |
+| Q4 | Cải thiện chunk strategy | 7 | Làm một phần | 35% | 2.5 | Có splitter với separator tốt hơn tại [src/services/rag/file_ingestion_service.py](src/services/rag/file_ingestion_service.py), nhưng chunk size/overlap vẫn hard-code |
+| Q5 | Citation/source tracking | 8 | Làm một phần (khá tốt) | 70% | 5.6 | Có model/repo citation và đã ghi citation sau truy hồi tại [src/models/message_citations.py](src/models/message_citations.py), [src/repositories/message_citation_repository.py](src/repositories/message_citation_repository.py), [src/services/chat_service.py](src/services/chat_service.py) |
+| Q6 | Conversational RAG | 10 | Làm một phần | 30% | 3.0 | Prompt có biến history tại [src/core/rag/prompt.py](src/core/rag/prompt.py), nhưng hiện vẫn truyền history rỗng ở [src/services/rag/rag_service.py](src/services/rag/rag_service.py) |
+| Q7 | Hybrid search (semantic + BM25) | 8 | Chưa làm | 0% | 0.0 | Retriever hiện chỉ similarity trong [src/services/rag/file_ingestion_service.py](src/services/rag/file_ingestion_service.py), chưa có BM25/ensemble |
+| Q8 | Multi-document + metadata filtering | 10 | Làm một phần | 40% | 4.0 | Có upload nhiều file theo conversation + selected_file_ids được lưu ở [src/services/chat_service.py](src/services/chat_service.py), [src/models/request_selected_files.py](src/models/request_selected_files.py), nhưng retrieval chưa filter theo selected file/metadata |
 | Q9 | Re-ranking với Cross-Encoder | 7 | Chưa làm | 0% | 0.0 | Chưa có lớp reranker/cross-encoder trong src |
-| Q10 | Self-RAG (query rewrite, confidence, multi-hop) | 6 | Chưa làm | 0% | 0.0 | Chưa có flow self-evaluation/rewrite/scoring |
+| Q10 | Self-RAG (query rewrite, confidence, multi-hop) | 6 | Chưa làm | 0% | 0.0 | Chưa có flow tự đánh giá/chỉnh truy vấn/scoring |
 
-**Tổng điểm hiện tại (ước tính): 16.8 / 100**
+**Tổng điểm hiện tại (ước tính): 50.3 / 100**
 
-## 3) Các chức năng đã làm được và chưa làm được
+## 3) Tiến độ hiện tại
 
-### Đã làm được (hoặc có nền tảng)
+### Đã hoàn thành hoặc đã có luồng chạy được
 
-- Có khung Django REST cho auth/user: [src/api/auth/views.py](src/api/auth/views.py), [src/api/user/views.py](src/api/user/views.py).
-- Có khung RAG cơ bản ở mức service: ingest + splitter + FAISS retriever + prompt song ngữ: [src/services/rag/file_ingestion_service.py](src/services/rag/file_ingestion_service.py), [src/services/rag/rag_service.py](src/services/rag/rag_service.py), [src/core/rag/prompt.py](src/core/rag/prompt.py).
-- Có thiết kế dữ liệu cho conversation, file, request/response message, citation, selected file.
+- Đã API hóa backend cho React ở các luồng chính: auth, user, chat, file, conversation ([src/urls.py](src/urls.py)).
+- Đã có migration schema thực tế: [src/migrations/0001_initial.py](src/migrations/0001_initial.py).
+- Đã có upload và ingest PDF/DOCX vào FAISS theo conversation: [src/services/file_service.py](src/services/file_service.py).
+- Đã có lưu lịch sử chat request/response + trả về history endpoint: [src/services/chat_service.py](src/services/chat_service.py), [src/api/chat/views.py](src/api/chat/views.py).
+- Đã có clear-history và clear-files (kèm xóa vector store theo conversation): [src/api/chat/views.py](src/api/chat/views.py), [src/api/file/views.py](src/api/file/views.py), [src/services/file_service.py](src/services/file_service.py).
+- Đã có lưu citation theo response message và trả citation trong response chat: [src/services/chat_service.py](src/services/chat_service.py).
 
-### Chưa làm được hoặc chưa hoàn thiện
+### Chưa hoàn thiện
 
-- Chưa API hóa luồng RAG cho React (upload file, tạo conversation, chat, lấy lịch sử, lấy citation).
-- Chưa có migration thực tế để đưa schema vào DB; cấu hình migration có tại [src/settings.py](src/settings.py#L125) nhưng thư mục [src/migrations](src/migrations) hiện chỉ có __init__.py.
-- Chưa có test tự động cho các luồng chính.
+- Chưa đưa lịch sử hội thoại thực tế vào prompt RAG (history đang rỗng): [src/services/rag/rag_service.py](src/services/rag/rag_service.py).
+- Chưa filter retrieval theo selected file/metadata dù đã lưu selected_file_ids: [src/services/chat_service.py](src/services/chat_service.py).
+- Chưa có hybrid search (BM25 + semantic), rerank cross-encoder, self-RAG.
+- Chưa có test tự động cho các luồng chính (không tìm thấy test file trong workspace).
 
-## 4) Blocker kỹ thuật cần sửa ngay (ảnh hưởng chức năng hiện có)
+## 4) Blocker và rủi ro kỹ thuật
 
-- Lệch tên field mật khẩu giữa model và service:
-	- Model dùng password_hash tại [src/models/user.py](src/models/user.py#L8).
-	- Service lại dùng hashed_password tại [src/services/auth_service.py](src/services/auth_service.py#L46), [src/services/auth_service.py](src/services/auth_service.py#L54), [src/services/auth_service.py](src/services/auth_service.py#L108), [src/services/auth_service.py](src/services/auth_service.py#L110).
-- Luồng role không khớp model:
-	- Kiểm tra role ở [src/core/auth.py](src/core/auth.py#L36), serialize role ở [src/api/user/UserResponse.py](src/api/user/UserResponse.py#L9), và so sánh role ở [src/services/user_service.py](src/services/user_service.py#L45).
-	- Nhưng User model hiện không có cột role trong [src/models/user.py](src/models/user.py).
-- Sai tên hàm service tại API user:
-	- View gọi get_users ở [src/api/user/views.py](src/api/user/views.py#L16).
-	- Service chỉ có get_all ở [src/services/user_service.py](src/services/user_service.py#L17).
-- Sai kiểu đối số khi delete:
-	- Service truyền id vào delete ở [src/services/user_service.py](src/services/user_service.py#L39).
-	- Repository base cần object model tại [src/repositories/base.py](src/repositories/base.py#L38).
+### Blocker cũ đã đóng
 
-## 5) Đề xuất thứ tự ưu tiên (trước -> sau)
+- Đã thống nhất field mật khẩu `password_hash` giữa model và auth service: [src/models/user.py](src/models/user.py), [src/services/auth_service.py](src/services/auth_service.py).
+- Đã có cột `role` trong user model và migration: [src/models/user.py](src/models/user.py), [src/migrations/0001_initial.py](src/migrations/0001_initial.py).
+- API user hiện gọi đúng service method `get_all`: [src/api/user/views.py](src/api/user/views.py), [src/services/user_service.py](src/services/user_service.py).
+- Delete user đã truyền object model vào repository delete: [src/services/user_service.py](src/services/user_service.py), [src/repositories/base.py](src/repositories/base.py).
 
-### P0 (làm trước, bắt buộc để backend chạy ổn định)
+### Rủi ro còn mở (ưu tiên sửa tiếp)
 
-1. Sửa toàn bộ blocker ở mục 4.
-2. Tạo migrations đầy đủ cho src.models và chạy migrate ổn định dev/prod.
-3. Chuẩn hóa API contract cho React: auth, users, conversations, files, chat, citations.
+- RAG chưa conversational thật sự do chưa bơm history vào prompt: [src/services/rag/rag_service.py](src/services/rag/rag_service.py).
+- `selected_file_ids` mới dừng ở lưu quan hệ, chưa tác động lên truy hồi chunk: [src/services/chat_service.py](src/services/chat_service.py).
+- Xóa một file đơn lẻ chưa đồng bộ lại vector index (đang để note tạm bỏ qua): [src/services/file_service.py](src/services/file_service.py).
+- Cách dùng decorator `require_role` chưa đồng nhất kiểu tham số (list/string): [src/core/auth.py](src/core/auth.py), [src/api/conversation/views.py](src/api/conversation/views.py).
 
-### P1 (ưu tiên cao, bám sát yêu cầu dễ lấy điểm và tạo sản phẩm chạy được)
+## 5) Đề xuất ưu tiên cập nhật (mới)
 
-1. Q2 Lưu lịch sử hội thoại: implement service + endpoint create/list conversation và message.
-2. Q1 Hỗ trợ DOCX: thêm loader (python-docx hoặc Docx loader), validate upload, ingest vào pipeline hiện tại.
-3. Q3 Clear history/vector store: endpoint xóa có xác nhận từ FE.
-4. Q5 Citation/source tracking: lưu page/chunk/score khi trả lời và trả về trong response API.
-5. Q4 Chunk strategy: cho phép cấu hình chunk_size/chunk_overlap qua API, lưu cấu hình theo conversation hoặc request.
+### P0 (ưu tiên ngay để tăng chất lượng trả lời thật sự)
 
-### P2 (trung hạn, nâng chất lượng trả lời)
+1. Q6: Đưa history thật từ DB vào `RAGService.chat_flow`, có giới hạn cửa sổ hội thoại.
+2. Q8: Áp dụng filter retrieval theo `selected_file_ids` (và metadata scope/file_type nếu có).
+3. Đồng bộ vector index khi xóa từng file (rebuild hoặc soft-delete metadata).
+4. Chuẩn hóa lại role-check usage và contract response/error cho các API mới.
 
-1. Q6 Conversational RAG: thay history rỗng bằng history thật từ DB, giới hạn cửa sổ ngữ cảnh.
-2. Q8 Multi-document + metadata filtering: upload nhiều file, filter theo file/scope/type/date.
-3. Q7 Hybrid search: thêm BM25 + vector, kết hợp điểm (weighted/rrf).
+### P1 (tăng độ ổn định và khả năng nghiệm thu)
 
-### P3 (nâng cao, tối ưu chất lượng học thuật)
+1. Q4: Cho phép cấu hình `chunk_size`/`chunk_overlap` qua API hoặc config theo conversation.
+2. Q5: Bổ sung endpoint lấy citation theo response (ngoài việc trả kèm trong chat).
+3. Bổ sung API smoke test + test tự động cho auth, upload, ask, history, clear.
 
-1. Q9 Re-ranking với cross-encoder.
-2. Q10 Self-RAG (query rewrite, confidence scoring, multi-hop).
+### P2 (nâng cấp retrieval)
 
-## 6) Mốc hoàn thành đề xuất
+1. Q7: Hybrid search (BM25 + vector) với weighted score hoặc RRF.
+2. Q9: Re-ranking với cross-encoder cho top-k kết quả.
 
-- Milestone 1: Hoàn tất P0 + API smoke test (React gọi được toàn bộ luồng cơ bản).
-- Milestone 2: Hoàn tất P1 (đạt chức năng cốt lõi theo assignment).
-- Milestone 3: Hoàn tất P2 (chất lượng retrieval tốt hơn, hỗ trợ multi-document).
-- Milestone 4: Hoàn tất P3 (nâng cao, tối ưu điểm phần khó).
+### P3 (nâng cao)
+
+1. Q10: Self-RAG (query rewrite, confidence scoring, fallback/multi-hop).
+
+## 6) Mốc hoàn thành đề xuất (cập nhật)
+
+- Milestone 1: Hoàn thành P0 cũ (API cơ bản + migration) -> **đã đạt phần lớn**.
+- Milestone 2: Hoàn tất P0 mới + P1 (conversational history thật, retrieval filter, test cơ bản).
+- Milestone 3: Hoàn tất P2 (hybrid + rerank) để tăng chất lượng retrieval.
+- Milestone 4: Hoàn tất P3 (self-RAG) cho phần nâng cao.

@@ -63,3 +63,10 @@ class ConversationService:
         
         return True
         
+
+    #lay session theo id cua user
+    def get_conversation_by_id(self, conversation_id: int, user_id: int):
+        conv = self.conversation_repo.get_user_conversation_by_id(user_id, conversation_id)
+        if not conv:
+            raise PermissionError("Conversation not found or access denied")
+        return conv
