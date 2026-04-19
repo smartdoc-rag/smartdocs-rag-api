@@ -13,17 +13,25 @@ from src.repositories.file_repository import FileRepository
 from src.repositories.conversation_repository import ConversationRepository
 from src.services.rag.file_ingestion_service import FileIngestionService
 from src.core.rag.embedding_provider import get_embedding
+from src.core.exceptions import ForbiddenException
 
 MEDIA_ROOT = os.path.join(settings.BASE_DIR, "media", "files")
 VECTOR_DB_ROOT = os.path.join(settings.BASE_DIR, "vector_db")
-SUPPORTED_EXTENSIONS = {'.pdf': 'pdf', '.docx': 'docx'}
+SUPPORTED_EXTENSIONS = {".pdf": "pdf", ".docx": "docx"}
+
 
 class FileService:
-    def __init__(self):
-        self.file_repo = FileRepository()
-        self.conversation_repo = ConversationRepository()
-        self.chunk_repo = ChunkRepository()
-        self.ingestion_service = FileIngestionService()
+    def __init__(
+        self,
+        file_repo=FileRepository(),
+        conversation_repo=ConversationRepository(),
+        chunk_repo=ChunkRepository(),
+        ingestion_service=FileIngestionService(),
+    ):
+        self.file_repo = file_repo
+        self.conversation_repo = conversation_repo
+        self.chunk_repo = chunk_repo
+        self.ingestion_service = ingestion_service
         self.embedding = get_embedding()
 
     def _get_vector_store_path(self, conversation_id: int) -> str:
@@ -32,7 +40,9 @@ class FileService:
     def _load_vectorstore(self, conversation_id: int):
         path = self._get_vector_store_path(conversation_id)
         if os.path.exists(path):
-            return FAISS.load_local(path, self.embedding, allow_dangerous_deserialization=True)
+            return FAISS.load_local(
+                path, self.embedding, allow_dangerous_deserialization=True
+            )
         return None
 
     def _save_vectorstore(self, vectorstore, conversation_id: int):
@@ -40,27 +50,41 @@ class FileService:
         os.makedirs(path, exist_ok=True)
         vectorstore.save_local(path)
 
-    def _extract_documents(self, file_path: str, file_type: str, chunk_size: int, chunk_overlap: int) -> list:
-        if file_type == 'pdf':
+    def _extract_documents(
+        self, file_path: str, file_type: str, chunk_size: int, chunk_overlap: int
+    ) -> list:
+        if file_type == "pdf":
             loader = PyPDFLoader(file_path)
         else:
             loader = Docx2txtLoader(file_path)
         docs = loader.load()
         if not docs:
-            raise ValueError("Cannot extract text from file")
-        return self.ingestion_service.text_splitter(docs, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+            raise ValueError("Định dạng file không được hỗ trợ")
+        return self.ingestion_service.text_splitter(
+            docs, chunk_size=chunk_size, chunk_overlap=chunk_overlap
+        )
 
     @transaction.atomic
-    def upload_file(self, conversation_id: int, user_id: int, uploaded_file: UploadedFile, scope='private'):
+    def upload_file(
+        self,
+        conversation_id: int,
+        user_id: int,
+        uploaded_file: UploadedFile,
+        scope="private",
+    ):
         # Kiểm tra quyền
-        conversation = self.conversation_repo.get_user_conversation_by_id(user_id, conversation_id)
+        conversation = self.conversation_repo.get_user_conversation_by_id(
+            user_id, conversation_id
+        )
         if not conversation:
-            raise PermissionError("Access denied")
+            raise ForbiddenException(
+                "Cuộc hội thoại không tồn tại hoặc không có quyền truy cập"
+            )
 
         existing_file = self.file_repo.get_one(
             conversation_id=conversation_id,
             file_name=uploaded_file.name,
-            file_size=uploaded_file.size
+            file_size=uploaded_file.size,
         )
 
         if existing_file:
@@ -69,14 +93,14 @@ class FileService:
         # Validate
         ext = os.path.splitext(uploaded_file.name)[1].lower()
         if ext not in SUPPORTED_EXTENSIONS:
-            raise ValueError("Unsupported file type")
+            raise ValueError("Định dạng này không được hỗ trợ")
         file_type = SUPPORTED_EXTENSIONS[ext]
 
         # Lưu file vật lý
         os.makedirs(MEDIA_ROOT, exist_ok=True)
         saved_name = f"{uuid.uuid4()}_{uploaded_file.name}"
         saved_path = os.path.join(MEDIA_ROOT, saved_name)
-        with open(saved_path, 'wb+') as dest:
+        with open(saved_path, "wb+") as dest:
             for chunk in uploaded_file.chunks():
                 dest.write(chunk)
 
@@ -86,7 +110,9 @@ class FileService:
             chunk_overlap = conversation.chunk_overlap
 
             # Split documents với config chunk_size và chunk overlap
-            split_docs = self._extract_documents(saved_path, file_type, chunk_size, chunk_overlap)
+            split_docs = self._extract_documents(
+                saved_path, file_type, chunk_size, chunk_overlap
+            )
 
             # Tạo DB record
             file_obj = File(
@@ -101,17 +127,17 @@ class FileService:
 
             # Gắn metadata
             for doc in split_docs:
-                doc.metadata['file_id'] = str(file_obj.id)
-                doc.metadata['file_name'] = file_obj.file_name
-                doc.metadata['conversation_id'] = conversation_id
+                doc.metadata["file_id"] = str(file_obj.id)
+                doc.metadata["file_name"] = file_obj.file_name
+                doc.metadata["conversation_id"] = conversation_id
 
                 chunk = Chunk(
                     conversation=conversation,
                     file=file_obj,
                     text=doc.page_content,
-                    page_number=doc.metadata.get('page'),
-                    start_index=doc.metadata.get('start_index'),
-                    metadata=doc.metadata
+                    page_number=doc.metadata.get("page"),
+                    start_index=doc.metadata.get("start_index"),
+                    metadata=doc.metadata,
                 )
                 self.chunk_repo.create(chunk)
 
@@ -130,14 +156,20 @@ class FileService:
                 os.remove(saved_path)
             raise
 
-    def get_files(self, conversation_id: int, user_id: int, skip=0, limit=20) -> Tuple[List[File], int]:
-        return self.file_repo.get_by_conversation_and_user(conversation_id, user_id, skip, limit)
+    def get_files(
+        self, conversation_id: int, user_id: int, skip=0, limit=20
+    ) -> Tuple[List[File], int]:
+        return self.file_repo.get_by_conversation_and_user(
+            conversation_id, user_id, skip, limit
+        )
 
     def delete_file(self, file_id: int, user_id: int) -> bool:
         file_obj = self.file_repo.get_one(id=file_id)
         if not file_obj:
             return False
-        conv = self.conversation_repo.get_user_conversation_by_id(user_id, file_obj.conversation_id)
+        conv = self.conversation_repo.get_user_conversation_by_id(
+            user_id, file_obj.conversation_id
+        )
         if not conv:
             return False
         if os.path.exists(file_obj.file_path):
@@ -147,10 +179,14 @@ class FileService:
         return True
 
     def clear_all_files(self, conversation_id: int, user_id: int) -> bool:
-        conv = self.conversation_repo.get_user_conversation_by_id(user_id, conversation_id)
+        conv = self.conversation_repo.get_user_conversation_by_id(
+            user_id, conversation_id
+        )
         if not conv:
             return False
-        files, _ = self.file_repo.get_by_conversation_and_user(conversation_id, user_id, limit=10000)
+        files, _ = self.file_repo.get_by_conversation_and_user(
+            conversation_id, user_id, limit=10000
+        )
         for f in files:
             if os.path.exists(f.file_path):
                 os.remove(f.file_path)
@@ -158,5 +194,6 @@ class FileService:
         vs_path = self._get_vector_store_path(conversation_id)
         if os.path.exists(vs_path):
             import shutil
+
             shutil.rmtree(vs_path)
         return True
