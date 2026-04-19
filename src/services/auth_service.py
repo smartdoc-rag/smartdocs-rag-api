@@ -78,20 +78,10 @@ class AuthService:
         token_obj = self.token_repo.get_valid_token(raw_refresh)
         if not token_obj:
             raise UnauthorizedException("Refresh token không hợp lệ hoặc đã hết hạn")
-
-        self.token_repo.revoke_token(token_obj)
-        new_raw = self._create_raw_refresh()
-        self.token_repo.create(
-            RefreshToken(
-                token=new_raw,
-                user_id=token_obj.user_id,
-                expires_at=datetime.now(timezone.utc)
-                + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
-            )
-        )
+        
         return {
             "access_token": self._create_access_token(token_obj.user_id),
-            "refresh_token": new_raw,
+            "refresh_token": token_obj.token,
         }
 
     def logout(self, raw_refresh: str) -> None:
