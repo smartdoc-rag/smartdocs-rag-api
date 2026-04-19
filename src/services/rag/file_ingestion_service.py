@@ -19,7 +19,7 @@ class FileIngestionService:
         return vectorstore
 
     def text_splitter(
-        self, documents: list[Document], chunks: int = 1500, chunk_overlap: int = 200
+        self, documents: list[Document], chunk_size: int = 1500, chunk_overlap: int = 200
     ) -> list[Document]:
         MARKDOWN_SEPARATORS = [
             "\n#{1,6}",  # Headings
@@ -32,9 +32,9 @@ class FileIngestionService:
         ]
 
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunks,
+            chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
-            add_start_index=True,
+            add_start_index=True, # roi
             strip_whitespace=True,
             separators=MARKDOWN_SEPARATORS,
         )

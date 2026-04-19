@@ -27,3 +27,9 @@ class RequestMessageRepository(BaseRepository[RequestMessage]):
         total = queryset.count()
         items = list(queryset[skip : skip + limit])
         return items, total
+
+    def get_recent(self, conversation_id: int, limit: int = 5) -> list[RequestMessage]:
+        """Lấy limit request gần nhất (theo thời gian giảm dần)"""
+        return list(self.model_class.objects.filter(
+            conversation_id=conversation_id
+        ).order_by('-id')[:limit])

@@ -6,6 +6,8 @@ from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader
 from langchain_community.vectorstores import FAISS
+from src.repositories.chunk_repository import ChunkRepository
+from src.models.chunk import Chunk
 from src.models.files import File
 from src.repositories.file_repository import FileRepository
 from src.repositories.conversation_repository import ConversationRepository
@@ -20,6 +22,7 @@ class FileService:
     def __init__(self):
         self.file_repo = FileRepository()
         self.conversation_repo = ConversationRepository()
+        self.chunk_repo = ChunkRepository()
         self.ingestion_service = FileIngestionService()
         self.embedding = get_embedding()
 
@@ -37,7 +40,7 @@ class FileService:
         os.makedirs(path, exist_ok=True)
         vectorstore.save_local(path)
 
-    def _extract_documents(self, file_path: str, file_type: str) -> list:
+    def _extract_documents(self, file_path: str, file_type: str, chunk_size: int, chunk_overlap: int) -> list:
         if file_type == 'pdf':
             loader = PyPDFLoader(file_path)
         else:
@@ -45,7 +48,7 @@ class FileService:
         docs = loader.load()
         if not docs:
             raise ValueError("Cannot extract text from file")
-        return self.ingestion_service.text_splitter(docs)
+        return self.ingestion_service.text_splitter(docs, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
     @transaction.atomic
     def upload_file(self, conversation_id: int, user_id: int, uploaded_file: UploadedFile, scope='private'):
@@ -54,6 +57,15 @@ class FileService:
         if not conversation:
             raise PermissionError("Access denied")
 
+        existing_file = self.file_repo.get_one(
+            conversation_id=conversation_id,
+            file_name=uploaded_file.name,
+            file_size=uploaded_file.size
+        )
+
+        if existing_file:
+            # Bỏ qua, trả về file cũ (không tạo mới)
+            return existing_file
         # Validate
         ext = os.path.splitext(uploaded_file.name)[1].lower()
         if ext not in SUPPORTED_EXTENSIONS:
@@ -69,8 +81,12 @@ class FileService:
                 dest.write(chunk)
 
         try:
-            # Split documents
-            split_docs = self._extract_documents(saved_path, file_type)
+            # Lấy chunk config từ conversation
+            chunk_size = conversation.chunk_size
+            chunk_overlap = conversation.chunk_overlap
+
+            # Split documents với config chunk_size và chunk overlap
+            split_docs = self._extract_documents(saved_path, file_type, chunk_size, chunk_overlap)
 
             # Tạo DB record
             file_obj = File(
@@ -85,9 +101,19 @@ class FileService:
 
             # Gắn metadata
             for doc in split_docs:
-                doc.metadata['file_id'] = file_obj.id
+                doc.metadata['file_id'] = str(file_obj.id)
                 doc.metadata['file_name'] = file_obj.file_name
                 doc.metadata['conversation_id'] = conversation_id
+
+                chunk = Chunk(
+                    conversation=conversation,
+                    file=file_obj,
+                    text=doc.page_content,
+                    page_number=doc.metadata.get('page'),
+                    start_index=doc.metadata.get('start_index'),
+                    metadata=doc.metadata
+                )
+                self.chunk_repo.create(chunk)
 
             # Ingest vào vector store
             vectorstore = self._load_vectorstore(conversation_id)
