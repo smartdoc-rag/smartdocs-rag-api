@@ -13,6 +13,7 @@ class Conversation(TimestampModel):
         on_delete=models.CASCADE,
         related_name="conversations"
     )
+    last_chat_at = models.DateTimeField(blank=True, null=True)
 
     def __str__(self):
         return f"Conversation {self.id} - {self.title or 'No title'}"
