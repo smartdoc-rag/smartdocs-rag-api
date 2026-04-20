@@ -79,7 +79,8 @@ class ConversationService:
         conv = self.conversation_repo.get_user_conversation_by_id(
             user_id, conversation_id
         )
-        raise ForbiddenException(
-            "Cuộc hội thoại không tồn tại hoặc không có quyền truy cập"
-        )
+        if not conv: 
+            raise ForbiddenException(
+                "Cuộc hội thoại không tồn tại hoặc không có quyền truy cập"
+            )
         return conv
