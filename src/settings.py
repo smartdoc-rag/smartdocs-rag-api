@@ -119,7 +119,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 REST_FRAMEWORK = {
-    "EXCEPTION_HANDLER": "src.core.exceptions.global_exception_handler",
+    # "EXCEPTION_HANDLER": "src.core.exceptions.global_exception_handler",
 }
 
 MIGRATION_MODULES = {
