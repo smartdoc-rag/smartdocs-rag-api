@@ -3,6 +3,7 @@ from rest_framework.views import APIView
 from src.core.response import success_response, error_response
 from src.core.auth import require_auth, require_role
 from src.services.conversation_service import ConversationService
+from django.forms.models import model_to_dict
 
 class ConversationCreateView(APIView):
     @require_auth
@@ -11,7 +12,8 @@ class ConversationCreateView(APIView):
         service = ConversationService()
         title = request.data.get('title')
         conv = service.create_conversation(request.user_id, title)
-        return success_response({"id": conv.id, "title": conv.title, "created_at": conv.created_at}, code=201)
+        data = model_to_dict(conv, exclude=['user'])
+        return success_response(data, code=201)
 
 class ConversationListView(APIView):
     @require_auth
@@ -21,7 +23,7 @@ class ConversationListView(APIView):
         skip = int(request.GET.get('skip', 0))
         limit = int(request.GET.get('limit', 20))
         convs, total = service.get_user_conversations(request.user_id, skip, limit)
-        data = [{"id": c.id, "title": c.title, "created_at": c.created_at} for c in convs]
+        data = [model_to_dict(c, exclude=['user']) for c in convs]
         return success_response({"items": data, "total": total})
 
 class ConversationChunkConfigView(APIView):
@@ -47,11 +49,8 @@ class ConversationChunkConfigView(APIView):
             conv.chunk_overlap = chunk_overlap
 
         conv.save()
-        return success_response({
-            "conversation_id": conv.id,
-            "chunk_size": conv.chunk_size,
-            "chunk_overlap": conv.chunk_overlap
-        })
+        data = model_to_dict(conv, exclude=['user'])
+        return success_response(data, code=200)
     
     
 class ConversationUpdateView(APIView):
@@ -61,40 +60,20 @@ class ConversationUpdateView(APIView):
         service = ConversationService()
         title = request.data.get('title')
         conv = service.update_conversation(request.user_id, conversation_id, title)
-        return success_response({"id": conv.id, "title": conv.title, "created_at": conv.created_at, "last_chat_at": conv.last_chat_at}, status=200)
+        data = model_to_dict(conv, exclude=['user'])
+        return success_response(data, code=200)
     
     
-    
-class ConversationUpdateView(APIView):
-    @require_auth
-    @require_role("user")
-    def put(self, request, conversation_id):
-        service = ConversationService()
-        title = request.data.get('title')
-        conv = service.update_conversation(request.user_id, conversation_id, title)
-        return success_response({"id": conv.id, "title": conv.title, "created_at": conv.created_at, "last_chat_at": conv.last_chat_at}, status=200)
-    
-    
-    
-class ConversationUpdateView(APIView):
-    @require_auth
-    @require_role("user")
-    def put(self, request, conversation_id):
-        service = ConversationService()
-        title = request.data.get('title')
-        conv = service.update_conversation(request.user_id, conversation_id, title)
-        return success_response({"id": conv.id, "title": conv.title, "created_at": conv.created_at, "last_chat_at": conv.last_chat_at}, status=200)
-    
-    
-    
+
 class ConversationPatchView(APIView):
     @require_auth
     @require_role("user")
     def patch(self, request, conversation_id):
         service = ConversationService()
         conv = service.update_last_chat(request.user_id, conversation_id)
-        return success_response({"id": conv.id, "title": conv.title, "created_at": conv.created_at, "last_chat_at": conv.last_chat_at}, status=200)
-    
+        data = model_to_dict(conv, exclude=['user'])
+        return success_response(data, code=200)
+
 class ConversationDeleteView(APIView):
     @require_auth
     @require_role("user")
@@ -106,22 +85,31 @@ class ConversationDeleteView(APIView):
             if success:
                 return success_response(
                     {'message': "Xóa hội thoại thành công", 'conversation_id': conversation_id},
-                    status=200
+                    code=200
                 )
             else:
                 return error_response(
                     {'message': "Có lỗi xảy ra khi xóa hội thoại", 'conversation_id': conversation_id},
-                    status=500
+                    code=500
                 )
                 
         except ValueError as e:
             return error_response(
                 {'message': str(e), 'conversation_id': conversation_id},
-                status=400
+                code=400
             )
             
         except Exception as e:
             return error_response(
                 {'message': "Đã xảy ra lỗi hệ thống", 'conversation_id': conversation_id},
-                status=500
+                code=500
             )
+            
+class ConversationGetByIdView(APIView):
+    @require_auth
+    @require_role("user")
+    def get(self, request, conversation_id):
+        service = ConversationService()
+        conv = service.get_conversation_by_id(conversation_id, request.user_id)
+        data = model_to_dict(conv, exclude=['user'])
+        return success_response(data, code=201)
