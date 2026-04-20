@@ -5,8 +5,8 @@ from src.core.exceptions import NotFoundException, ForbiddenException
 
 
 class ConversationService:
-    def __init__(self, conversation_repo: ConversationRepository):
-        self.conversation_repo = conversation_repo
+    def __init__(self):
+        self.conversation_repo = ConversationRepository()
 
     # tao session cua user
     def create_conversation(self, user_id: int, title: str = None) -> Conversation:
