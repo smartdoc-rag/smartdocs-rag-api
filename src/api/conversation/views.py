@@ -61,7 +61,31 @@ class ConversationUpdateView(APIView):
         service = ConversationService()
         title = request.data.get('title')
         conv = service.update_conversation(request.user_id, conversation_id, title)
-        return success_response({"id": conv.id, "title": conv.title, "created_at": conv.created_at, "last_chat_at": conv.last_chat_at}, code=200)
+        return success_response({"id": conv.id, "title": conv.title, "created_at": conv.created_at, "last_chat_at": conv.last_chat_at}, status=200)
+    
+    
+    
+class ConversationUpdateView(APIView):
+    @require_auth
+    @require_role("user")
+    def put(self, request, conversation_id):
+        service = ConversationService()
+        title = request.data.get('title')
+        conv = service.update_conversation(request.user_id, conversation_id, title)
+        return success_response({"id": conv.id, "title": conv.title, "created_at": conv.created_at, "last_chat_at": conv.last_chat_at}, status=200)
+    
+    
+    
+class ConversationUpdateView(APIView):
+    @require_auth
+    @require_role("user")
+    def put(self, request, conversation_id):
+        service = ConversationService()
+        title = request.data.get('title')
+        conv = service.update_conversation(request.user_id, conversation_id, title)
+        return success_response({"id": conv.id, "title": conv.title, "created_at": conv.created_at, "last_chat_at": conv.last_chat_at}, status=200)
+    
+    
     
 class ConversationPatchView(APIView):
     @require_auth
@@ -69,7 +93,7 @@ class ConversationPatchView(APIView):
     def patch(self, request, conversation_id):
         service = ConversationService()
         conv = service.update_last_chat(request.user_id, conversation_id)
-        return success_response({"id": conv.id, "title": conv.title, "created_at": conv.created_at, "last_chat_at": conv.last_chat_at}, code=200)
+        return success_response({"id": conv.id, "title": conv.title, "created_at": conv.created_at, "last_chat_at": conv.last_chat_at}, status=200)
     
 class ConversationDeleteView(APIView):
     @require_auth
@@ -82,22 +106,22 @@ class ConversationDeleteView(APIView):
             if success:
                 return success_response(
                     {'message': "Xóa hội thoại thành công", 'conversation_id': conversation_id},
-                    code=200
+                    status=200
                 )
             else:
                 return error_response(
                     {'message': "Có lỗi xảy ra khi xóa hội thoại", 'conversation_id': conversation_id},
-                    code=500
+                    status=500
                 )
                 
         except ValueError as e:
             return error_response(
                 {'message': str(e), 'conversation_id': conversation_id},
-                code=400
+                status=400
             )
             
         except Exception as e:
             return error_response(
                 {'message': "Đã xảy ra lỗi hệ thống", 'conversation_id': conversation_id},
-                code=500
+                status=500
             )

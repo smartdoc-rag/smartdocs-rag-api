@@ -50,6 +50,12 @@ def global_exception_handler(exc, context):
     if isinstance(exc, BaseException):
         return error_response(message=exc.message, errors=exc.errors, code=exc.code)
 
+    if isinstance(exc, ValueError):
+        return error_response(
+            message=str(exc) or "Giá trị không hợp lệ",
+            code=status.HTTP_400_BAD_REQUEST,
+        )
+
     errorSystem = drf_exception_handler(exc, context)
     if errorSystem is not None:
         return error_response(
