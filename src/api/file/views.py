@@ -49,6 +49,7 @@ class FileListView(APIView):
                 "file_name": f.file_name,
                 "file_size": f.file_size,
                 "file_type": f.file_type,
+                "file_uploaded_at": f.created_at,
                 "scope": f.scope,
             }
             for f in files
