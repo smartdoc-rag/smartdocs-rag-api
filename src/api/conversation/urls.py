@@ -6,7 +6,8 @@ from .views import (
     ConversationPatchView, 
     ConversationDeleteView,    
     ConversationChunkConfigView,
-    ConversationGetByIdView
+    ConversationGetByIdView,
+    ConversationSelectedFilesView
 )
 
 urlpatterns = [
@@ -21,5 +22,9 @@ urlpatterns = [
         ConversationChunkConfigView.as_view(),
         name="chunk-config",
     ),
-
+    path(
+        "<int:conversation_id>/selected-files",
+        ConversationSelectedFilesView.as_view(),
+        name="conversation-selected-files"
+    ),
 ]

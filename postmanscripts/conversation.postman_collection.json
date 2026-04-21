@@ -241,6 +241,85 @@
         }
       },
       "response": []
+    },
+    {
+      "name": "set-selected-files",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"file_ids\": [1, 2, 3]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://{{HOST}}:{{PORT}}/api/conversation/1/selected-files",
+          "protocol": "http",
+          "host": [
+            "{{HOST}}"
+          ],
+          "port": "{{PORT}}",
+          "path": [
+            "api",
+            "conversation",
+            "1",
+            "selected-files"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "get-selected-files",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://{{HOST}}:{{PORT}}/api/conversation/1/selected-files",
+          "protocol": "http",
+          "host": [
+            "{{HOST}}"
+          ],
+          "port": "{{PORT}}",
+          "path": [
+            "api",
+            "conversation",
+            "1",
+            "selected-files"
+          ]
+        }
+      },
+      "response": []
     }
   ]
 }
