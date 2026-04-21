@@ -1,6 +1,5 @@
 import redis
 from django.conf import settings
-from redis.connection import ssl
 
 
 class RedisService:

@@ -6,6 +6,8 @@ from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader
 from langchain_community.vectorstores import FAISS
+
+from src.services.redis_service import RedisService
 from src.repositories.chunk_repository import ChunkRepository
 from src.models.chunk import Chunk
 from src.models.files import File
@@ -33,6 +35,7 @@ class FileService:
         self.chunk_repo = chunk_repo
         self.ingestion_service = ingestion_service
         self.embedding = get_embedding()
+        self.redis_service = RedisService()
 
     def _get_vector_store_path(self, conversation_id: int) -> str:
         return os.path.join(VECTOR_DB_ROOT, f"conv_{conversation_id}")
@@ -150,6 +153,11 @@ class FileService:
             else:
                 self._save_vectorstore(new_vs, conversation_id)
 
+            # Tự động thêm vào Redis selected files
+            current_ids = self.redis_service.get_selected_files(conversation_id)
+            if file_obj.id not in current_ids:
+                current_ids.append(file_obj.id)
+                self.redis_service.set_selected_files(conversation_id, current_ids)
             return file_obj
         except Exception:
             if os.path.exists(saved_path):
