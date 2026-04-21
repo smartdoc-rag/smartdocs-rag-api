@@ -3,6 +3,7 @@ from rest_framework.views import APIView
 from src.core.response import success_response, error_response
 from src.core.auth import require_auth, require_role
 from src.services.conversation_service import ConversationService
+from src.services.redis_service import RedisService
 from django.forms.models import model_to_dict
 
 class ConversationCreateView(APIView):
@@ -113,3 +114,38 @@ class ConversationGetByIdView(APIView):
         conv = service.get_conversation_by_id(conversation_id, request.user_id)
         data = model_to_dict(conv, exclude=['user'])
         return success_response(data, code=201)
+
+class ConversationSelectedFilesView(APIView):
+    @require_auth
+    @require_role("user")
+    def post(self, request, conversation_id):
+        file_ids = request.data.get('file_ids', [])
+        if not isinstance(file_ids, list):
+            return error_response({"error": "file_ids must be a list"}, code=400)
+        
+        # Verify conversation belongs to user
+        service = ConversationService()
+        try:
+            service.get_conversation_by_id(conversation_id, request.user_id)
+        except PermissionError as e:
+            return error_response({"error": str(e)}, code=404)
+        
+        redis_service = RedisService()
+        redis_service.set_selected_files(conversation_id, file_ids)
+        
+        return success_response({"message": "Selected files saved successfully", "file_ids": file_ids}, code=200)
+
+    @require_auth
+    @require_role("user")
+    def get(self, request, conversation_id):
+        # Verify conversation belongs to user
+        service = ConversationService()
+        try:
+            service.get_conversation_by_id(conversation_id, request.user_id)
+        except PermissionError as e:
+            return error_response({"error": str(e)}, code=404)
+
+        redis_service = RedisService()
+        file_ids = redis_service.get_selected_files(conversation_id)
+        
+        return success_response({"file_ids": file_ids}, code=200)
