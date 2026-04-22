@@ -6,7 +6,7 @@ from django.conf import settings
 class LLMModel:
     @staticmethod
     def get_ollama(
-        model: str = "qwen3.5:cloud",
+        model: str = "deepseek-v3.1:671b-cloud",
         temperature: float = 0,
         top_p: float = 0.9,
         repeat_penalty: float = 1.1,
