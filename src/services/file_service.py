@@ -14,6 +14,7 @@ from src.models.files import File
 from src.repositories.file_repository import FileRepository
 from src.repositories.conversation_repository import ConversationRepository
 from src.services.rag.file_ingestion_service import FileIngestionService
+from src.services.rag.graph_ingestion_service import GraphIngestionService
 from src.core.rag.embedding_provider import get_embedding
 from src.core.exceptions import ForbiddenException
 
@@ -29,11 +30,13 @@ class FileService:
         conversation_repo=ConversationRepository(),
         chunk_repo=ChunkRepository(),
         ingestion_service=FileIngestionService(),
+        graph_ingestion_service: GraphIngestionService = None,
     ):
         self.file_repo = file_repo
         self.conversation_repo = conversation_repo
         self.chunk_repo = chunk_repo
         self.ingestion_service = ingestion_service
+        self.graph_ingestion_service = graph_ingestion_service
         self.embedding = get_embedding()
         self.redis_service = RedisService()
 
@@ -143,6 +146,19 @@ class FileService:
                     metadata=doc.metadata,
                 )
                 self.chunk_repo.create(chunk)
+
+            # Ingest vào Neo4j graph nếu có service
+            neo4j_result = {}
+            if self.graph_ingestion_service:
+                try:
+                    neo4j_result = self.graph_ingestion_service.hybrid_ingest(
+                        split_docs, vector_index_name=f"conv_{conversation_id}"
+                    )
+                except Exception as e:
+                    neo4j_result = {"error": str(e)}
+                    # Log nhưng không fail
+                    import logging
+                    logging.getLogger(__name__).warning(f"Failed to ingest to Neo4j: {e}")
 
             # Ingest vào vector store
             vectorstore = self._load_vectorstore(conversation_id)
