@@ -21,11 +21,34 @@ class ConversationListView(APIView):
     @require_role("user")
     def get(self, request):
         service = ConversationService()
-        skip = int(request.GET.get('skip', 0))
-        limit = int(request.GET.get('limit', 20))
+        
+        page = int(request.GET.get('page', 1))
+        page_size = int(request.GET.get('page_size', 10))
+        
+        page_size = min(page_size, 100)
+        
+        skip = (page - 1) * page_size
+        limit = page_size
+        
         convs, total = service.get_user_conversations(request.user_id, skip, limit)
+        
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 0
+        
         data = [model_to_dict(c, exclude=['user']) for c in convs]
-        return success_response({"items": data, "total": total})
+        
+        return success_response({
+            "items": data,
+            "pagination": {
+                "current_page": page,
+                "page_size": page_size,
+                "total_items": total,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_previous": page > 1,
+                "next_page": page + 1 if page < total_pages else None,
+                "previous_page": page - 1 if page > 1 else None
+            }
+        })
 
 class ConversationChunkConfigView(APIView):
     @require_auth
@@ -74,8 +97,17 @@ class ConversationPatchView(APIView):
         conv = service.update_last_chat(request.user_id, conversation_id)
         data = model_to_dict(conv, exclude=['user'])
         return success_response(data, code=200)
-
-class ConversationDeleteView(APIView):
+    
+            
+class ConversationDetailView(APIView):
+    @require_auth
+    @require_role("user")
+    def get(self, request, conversation_id):
+        service = ConversationService()
+        conv = service.get_conversation_by_id(conversation_id, request.user_id)
+        data = model_to_dict(conv, exclude=['user'])
+        return success_response(data, code=201)
+    
     @require_auth
     @require_role("user")
     def delete(self, request, conversation_id):
@@ -105,15 +137,6 @@ class ConversationDeleteView(APIView):
                 {'message': "Đã xảy ra lỗi hệ thống", 'conversation_id': conversation_id},
                 code=500
             )
-            
-class ConversationGetByIdView(APIView):
-    @require_auth
-    @require_role("user")
-    def get(self, request, conversation_id):
-        service = ConversationService()
-        conv = service.get_conversation_by_id(conversation_id, request.user_id)
-        data = model_to_dict(conv, exclude=['user'])
-        return success_response(data, code=201)
 
 class ConversationSelectedFilesView(APIView):
     @require_auth
