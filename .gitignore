@@ -154,3 +154,4 @@ cython_debug/
 /staticfiles/
 /static/
 /vector_db
+neo4j/data/

@@ -10,6 +10,7 @@ from src.repositories.conversation_repository import ConversationRepository
 from src.services.conversation_service import ConversationService
 from src.services.file_service import FileService
 from src.services.rag.file_ingestion_service import FileIngestionService
+from src.services.rag.graph_ingestion_service import GraphIngestionService
 from src.repositories.request_selected_file_repository import (
     RequestSelectedFileRepository,
 )
@@ -54,4 +55,5 @@ def file_service() -> FileService:
         conversation_repo=ConversationRepository(),
         chunk_repo=ChunkRepository(),
         ingestion_service=FileIngestionService(),
+        graph_ingestion_service=GraphIngestionService(),
     )

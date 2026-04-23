@@ -10,6 +10,7 @@ from src.core.rag.embedding_provider import get_embedding
 from src.core.rag.cross_encoder import CrossEncoderReranker
 from src.services.rag.file_ingestion_service import FileIngestionService
 from src.services.rag.rag_service import RAGService
+from src.services.rag.graph_rag_service import GraphRAGService
 from src.repositories.conversation_repository import ConversationRepository
 from src.repositories.request_message_repository import RequestMessageRepository
 from src.repositories.response_message_repository import ResponseMessageRepository
@@ -174,7 +175,11 @@ class ChatService:
                     question, retrieved_docs, top_k=top_k
                 )
 
-        rag = RAGService()
+        # Chọn RAG service dựa trên response_type
+        if response_type == "graph_rag":
+            rag = GraphRAGService()
+        else:
+            rag = RAGService()
 
         final_question = question
         if use_self_rag and chat_history:
