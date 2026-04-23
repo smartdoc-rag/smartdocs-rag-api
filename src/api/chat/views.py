@@ -43,12 +43,33 @@ class ChatHistoryView(APIView):
     @require_auth
     @require_role("user")
     def get(self, request, conversation_id):
-        skip = int(request.GET.get("skip", 0))
-        limit = int(request.GET.get("limit", 50))
+        page = int(request.GET.get("page", 1))
+        page_size = int(request.GET.get("page_size", 20))
+        
+        page_size = min(page_size, 100)
+        
+        skip = (page - 1) * page_size
+        limit = page_size
+        
         history, total = chat_service().get_history(
             conversation_id, request.user_id, skip, limit
         )
-        return success_response({"history": history, "total": total}, code=200)
+        
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 0
+        
+        return success_response({
+            "history": history,
+            "pagination": {
+                "current_page": page,
+                "page_size": page_size,
+                "total_items": total,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_previous": page > 1,
+                "next_page": page + 1 if page < total_pages else None,
+                "previous_page": page - 1 if page > 1 else None
+            }
+        }, code=200)
 
 
 class ClearHistoryView(APIView):
