@@ -153,3 +153,4 @@ cython_debug/
 /media/
 /staticfiles/
 /static/
+/vector_db
