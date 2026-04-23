@@ -1,6 +1,7 @@
 from rest_framework.views import APIView
 from src.core.response import error_response, success_response
 from src.core.auth import require_auth, require_role
+from src.core.pagination import PaginationParams, build_pagination_meta
 from src.api.deps import chat_service
 
 
@@ -43,33 +44,15 @@ class ChatHistoryView(APIView):
     @require_auth
     @require_role("user")
     def get(self, request, conversation_id):
-        page = int(request.GET.get("page", 1))
-        page_size = int(request.GET.get("page_size", 20))
-        
-        page_size = min(page_size, 100)
-        
-        skip = (page - 1) * page_size
-        limit = page_size
-        
+        params = PaginationParams.from_request(request, default_page_size=20)
         history, total = chat_service().get_history(
-            conversation_id, request.user_id, skip, limit
+            conversation_id, request.user_id, params.skip, params.limit
         )
-        
-        total_pages = (total + page_size - 1) // page_size if total > 0 else 0
-        
-        return success_response({
-            "history": history,
-            "pagination": {
-                "current_page": page,
-                "page_size": page_size,
-                "total_items": total,
-                "total_pages": total_pages,
-                "has_next": page < total_pages,
-                "has_previous": page > 1,
-                "next_page": page + 1 if page < total_pages else None,
-                "previous_page": page - 1 if page > 1 else None
-            }
-        }, code=200)
+        return success_response(
+            data={"history": history},
+            meta=build_pagination_meta(params.page, params.page_size, total),
+            code=200,
+        )
 
 
 class ClearHistoryView(APIView):
