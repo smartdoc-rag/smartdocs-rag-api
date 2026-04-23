@@ -17,7 +17,7 @@ class ConversationService:
 
     # lay session cua user
     def get_user_conversations(self, user_id: int, skip=0, limit=20):
-        return self.conversation_repo.get_all(user_id=user_id, skip=skip, limit=limit)
+        return self.conversation_repo.get_by_user_id_with_order(user_id=user_id, skip=skip, limit=limit)
 
     # update title
     def update_conversation(
