@@ -1,6 +1,7 @@
 from rest_framework.views import APIView
 from src.core.response import success_response, error_response
 from src.core.auth import require_auth, require_role
+from src.core.pagination import PaginationParams, build_pagination_meta
 from src.api.deps import file_service
 
 
@@ -38,10 +39,9 @@ class FileListView(APIView):
     @require_auth
     @require_role("user")
     def get(self, request, conversation_id):
-        skip = int(request.GET.get("skip", 0))
-        limit = int(request.GET.get("limit", 20))
+        params = PaginationParams.from_request(request, default_page_size=20)
         files, total = file_service().get_files(
-            conversation_id, request.user_id, skip, limit
+            conversation_id, request.user_id, params.skip, params.limit
         )
         data = [
             {
@@ -54,7 +54,10 @@ class FileListView(APIView):
             }
             for f in files
         ]
-        return success_response({"items": data, "total": total})
+        return success_response(
+            data={"items": data},
+            meta=build_pagination_meta(params.page, params.page_size, total),
+        )
 
 
 class FileDeleteView(APIView):

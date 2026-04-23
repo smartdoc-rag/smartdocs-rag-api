@@ -10,18 +10,18 @@ from src.core.response import (
     success_response,
 )
 from src.core.auth import require_auth, require_role
+from src.core.pagination import PaginationParams, build_pagination_meta
 
 
 class UserListView(APIView):
     @require_auth
     @require_role(["user"])
     def get(self, request):
-        page = int(request.query_params.get("page", 1))
-        page_size = int(request.query_params.get("page_size", 20))
-        result = user_service().get_all(page=page, page_size=page_size)
+        params = PaginationParams.from_request(request, default_page_size=20)
+        items, total = user_service().get_all(skip=params.skip, limit=params.limit)
         return fetched_response(
-            data=UserResponse.from_list(result["items"]),
-            meta=result["meta"],
+            data=UserResponse.from_list(items),
+            meta=build_pagination_meta(params.page, params.page_size, total),
         )
 
 
