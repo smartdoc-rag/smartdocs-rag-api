@@ -12,7 +12,7 @@ from .views import (
 urlpatterns = [
     path('', ConversationListView.as_view(), name='conversation-list'),
     path('<int:conversation_id>', ConversationDetailView.as_view()),
-    path('create', ConversationCreateView.as_view(), name='conversation-create'),
+    path('create/', ConversationCreateView.as_view(), name='conversation-create'),
     path('<int:conversation_id>/title', ConversationUpdateView.as_view(), name='conversation-update'),
     path('<int:conversation_id>/last-chat', ConversationPatchView.as_view(), name='conversation-last-chat'),
     path(

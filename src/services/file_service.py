@@ -154,6 +154,7 @@ class FileService:
                     neo4j_result = self.graph_ingestion_service.hybrid_ingest(
                         split_docs, vector_index_name=f"conv_{conversation_id}"
                     )
+                    print(neo4j_result)
                 except Exception as e:
                     neo4j_result = {"error": str(e)}
                     # Log nhưng không fail
