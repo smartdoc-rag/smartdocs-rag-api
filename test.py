@@ -9,6 +9,7 @@ graph = Neo4jGraph(
     url=NEO4J_URI,
     username=NEO4J_USERNAME,
     password=NEO4J_PASSWORD,
+    database=NEO4J_USERNAME
 )
 
 from langchain_ollama import OllamaLLM
@@ -16,7 +17,7 @@ from langchain_ollama import OllamaLLM
 llm = OllamaLLM(model="qwen3.5:cloud", temperature=0, top_p=0.9, repeat_penalty=1.1)
 
 graph_docs_raw = PyPDFLoader(
-    "media/files/79817a32-5d68-4de7-af61-b30f931f4c9d_Bản sao của Bien-ban-danh-gia-do-an-cuoi-ki.docx.pdf",
+    "media/files/1fd4d245-c210-4e20-b22e-17e60be245c3_1-Gioithieu.pdf",
 )
 
 MARKDOWN_SEPARATORS = [
@@ -52,6 +53,7 @@ vector_store = Neo4jVector.from_documents(
     url=NEO4J_URI,
     username=NEO4J_USERNAME,
     password=NEO4J_PASSWORD,
+    database=NEO4J_USERNAME,
     index_name="test_index",
     node_label="Chunk",
     text_node_property="text",
@@ -92,7 +94,7 @@ chain = GraphCypherQAChain.from_llm(
     allow_dangerous_requests=True,  # Bạn cần cấp quyền này để chain thực thi truy vấn Cypher
 )
 
-answer = chain.invoke({"query": "Nguyễn Thanh Hiền là ai"})
+answer = chain.invoke({"query": "Mon gi day ?"})
 print(answer["result"])
 
 # from src.settings import NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD

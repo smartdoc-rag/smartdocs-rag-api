@@ -74,11 +74,13 @@ class GraphIngestionService:
             url=uri,
             username=username,
             password=password,
+            database=username,
             index_name=index_name,
             node_label=node_label,
             text_node_property=text_node_property,
             embedding_node_property=embedding_node_property,
         )
+        print(vector_store)
         return vector_store
 
     def create_graph_from_documents(self,
