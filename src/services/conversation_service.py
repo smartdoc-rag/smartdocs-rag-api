@@ -15,9 +15,26 @@ class ConversationService:
         conv = Conversation(user_id=user_id, title=title, last_chat_at=timezone.now())
         return self.conversation_repo.create(conv)
 
-    # lay session cua user
-    def get_user_conversations(self, user_id: int, skip=0, limit=20):
-        return self.conversation_repo.get_by_user_id_with_order(user_id=user_id, skip=skip, limit=limit)
+    def get_user_conversations(self, user_id: int, cursor=None, limit=20):
+        convs = self.conversation_repo.get_by_user_with_cursor(
+            user_id=user_id,
+            cursor=cursor,
+            limit=limit + 1,  # lấy dư 1
+        )
+
+        has_next = len(convs) > limit
+
+        if has_next:
+            convs = convs[:limit]
+
+        next_cursor = None
+        if convs:
+            last = convs[-1]
+
+            sort_time = last.last_chat_at or last.created_at
+            next_cursor = f"{sort_time.isoformat()}_{last.id}"
+
+        return convs, next_cursor, has_next
 
     # update title
     def update_conversation(

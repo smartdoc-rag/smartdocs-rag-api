@@ -155,3 +155,5 @@ cython_debug/
 /static/
 /vector_db
 neo4j/data/
+
+/.vscode/settings.json
