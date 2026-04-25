@@ -48,13 +48,16 @@ class GraphRAGService:
             import logging
             logging.getLogger(__name__).warning(f"Failed to connect to Neo4j: {e}")
 
-    def _get_cypher_prompt(self) -> PromptTemplate:
+    def _get_cypher_prompt(self, selected_file_ids: Optional[List[int]] = None) -> PromptTemplate:
         """Tạo prompt cho Cypher generation"""
-        return PromptTemplate(
-            input_variables=["schema", "question"],
-            template="""
+        file_filter = ""
+        if selected_file_ids:
+            file_ids_str = ", ".join([f"'{fid}'" for fid in selected_file_ids])
+            file_filter = f"\n5. IMPORTANT: You must ONLY search within nodes or entities related to the following file_ids: [{file_ids_str}]. If a node represents a Document or Chunk, it MUST have a file_id IN [{file_ids_str}]. If it is an entity, it MUST be connected to a Chunk/Document with a file_id IN [{file_ids_str}]."
+
+        template = f"""
             You are a Neo4j expert. Given the following graph schema:
-            {schema}
+            {{schema}}
 
             Instructions:
             1. Focus on finding entities (like Person, Organization, etc.) that match the keywords in the question.
@@ -64,20 +67,23 @@ class GraphRAGService:
                 - toLower() for case-insensitive: WHERE toLower(c.text) CONTAINS 'keyword'
                 - Regex for flexible matching: WHERE c.text =~ '(?i).*keyword.*'
                 IMPORTANT: Do not use ILIKE as it is not valid Cypher syntax.
-            4. If no specific entity is found, fall back to searching in 'Chunk' nodes.
+            4. If no specific entity is found, fall back to searching in 'Chunk' nodes.{file_filter}
 
-            Question: {question}
+            Question: {{question}}
             Cypher Query:
-            """,
+            """
+        return PromptTemplate(
+            input_variables=["schema", "question"],
+            template=template,
         )
 
-    def _create_chain(self):
+    def _create_chain(self, selected_file_ids: Optional[List[int]] = None):
         """Tạo GraphCypherQAChain"""
         if not self.neo4j_available or self.graph is None or GraphCypherQAChain is None:
             raise ValueError(
                 "Neo4j graph not available. Cannot create GraphCypherQAChain."
             )
-        cypher_prompt = self._get_cypher_prompt()
+        cypher_prompt = self._get_cypher_prompt(selected_file_ids)
         chain = GraphCypherQAChain.from_llm(
             llm=self.llm,
             graph=self.graph,
@@ -92,6 +98,7 @@ class GraphRAGService:
         user_input: str,
         context_docs: Optional[List[Document]] = None,
         chat_history: Optional[List[Tuple[str, str]]] = None,
+        selected_file_ids: Optional[List[int]] = None,
     ) -> str:
         """
         Luồng chat sử dụng Graph RAG.
@@ -116,19 +123,19 @@ class GraphRAGService:
 
         # Nếu có context_docs, thực hiện hybrid search
         if context_docs:
-            return self.hybrid_search(user_input, context_docs, chat_history)
+            return self.hybrid_search(user_input, context_docs, chat_history, selected_file_ids)
 
         # Chỉ query graph
-        chain = self._create_chain()
+        chain = self._create_chain(selected_file_ids)
         answer = chain.invoke({"query": user_input})
         result = answer.get("result", "")
         return result
 
-    def query_graph(self, question: str) -> str:
+    def query_graph(self, question: str, selected_file_ids: Optional[List[int]] = None) -> str:
         """Truy vấn đồ thị Neo4j trực tiếp"""
         if not self.neo4j_available or self.graph is None:
             raise ValueError("Neo4j graph not available.")
-        chain = self._create_chain()
+        chain = self._create_chain(selected_file_ids)
         answer = chain.invoke({"query": question})
         return answer.get("result", "")
 
@@ -137,6 +144,7 @@ class GraphRAGService:
         question: str,
         vector_docs: List[Document],
         chat_history: Optional[List[Tuple[str, str]]] = None,
+        selected_file_ids: Optional[List[int]] = None,
     ) -> str:
         """
         Kết hợp graph query và vector search.
@@ -151,7 +159,7 @@ class GraphRAGService:
                 question, context_docs=vector_docs, chat_history=chat_history
             )
 
-        graph_answer = self.query_graph(question)
+        graph_answer = self.query_graph(question, selected_file_ids)
         # Nếu graph answer không đủ, sử dụng vector docs với RAG
         if not graph_answer or "I don't know" in graph_answer.lower():
             from src.services.rag.rag_service import RAGService

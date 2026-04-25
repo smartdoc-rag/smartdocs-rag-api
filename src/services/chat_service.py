@@ -201,8 +201,15 @@ class ChatService:
         elif use_self_rag and not use_reranking:
             retrieved_docs = retrieved_docs[:top_k]
 
+        chat_flow_kwargs = {
+            "context_docs": retrieved_docs,
+            "chat_history": chat_history
+        }
+        if response_type == "graph_rag":
+            chat_flow_kwargs["selected_file_ids"] = selected_file_ids
+
         answer = rag.chat_flow(
-            final_question, context_docs=retrieved_docs, chat_history=chat_history
+            final_question, **chat_flow_kwargs
         )
 
         # Self-evaluation
@@ -228,10 +235,17 @@ class ChatService:
                         if key not in seen:
                             seen.add(key)
                             unique_docs.append(doc)
+
+                    chat_flow_extra_kwargs = {
+                        "context_docs": unique_docs[: top_k * 2],
+                        "chat_history": chat_history
+                    }
+                    if response_type == "graph_rag":
+                        chat_flow_extra_kwargs["selected_file_ids"] = selected_file_ids
+
                     answer = rag.chat_flow(
                         final_question,
-                        context_docs=unique_docs[: top_k * 2],
-                        chat_history=chat_history,
+                        **chat_flow_extra_kwargs
                     )
 
         # Tạo response
