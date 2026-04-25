@@ -34,3 +34,25 @@ def build_pagination_meta(page: int, page_size: int, total: int) -> dict:
         "next_page": page + 1 if page < total_pages else None,
         "previous_page": page - 1 if page > 1 else None,
     }
+
+
+@dataclass
+class CursorPaginationParams:
+    cursor: str | None
+    limit: int
+
+    @classmethod
+    def from_request(cls, request, default_limit=20, max_limit=100):
+        cursor = request.GET.get("cursor")
+        limit = int(request.GET.get("limit", default_limit))
+        limit = min(limit, max_limit)
+        return cls(cursor=cursor, limit=limit)
+    
+
+
+
+def build_cursor_pagination_meta(next_cursor: str | None, has_next: bool) -> dict:
+    return {
+        "next_cursor": next_cursor,
+        "has_next": has_next,
+    }

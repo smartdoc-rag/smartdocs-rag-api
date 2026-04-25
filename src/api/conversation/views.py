@@ -2,7 +2,7 @@ from rest_framework.views import APIView
 
 from src.core.response import success_response, error_response
 from src.core.auth import require_auth, require_role
-from src.core.pagination import PaginationParams, build_pagination_meta
+from src.core.pagination import CursorPaginationParams, build_cursor_pagination_meta
 from src.services.conversation_service import ConversationService
 from src.services.redis_service import RedisService
 from django.forms.models import model_to_dict
@@ -24,14 +24,25 @@ class ConversationListView(APIView):
     @require_role("user")
     def get(self, request):
         service = ConversationService()
-        params = PaginationParams.from_request(request, default_page_size=10)
-        convs, total = service.get_user_conversations(
-            request.user_id, params.skip, params.limit
+
+        params = CursorPaginationParams.from_request(request)
+
+        convs, next_cursor, has_next = service.get_user_conversations(
+            user_id=request.user_id,
+            cursor=params.cursor,
+            limit=params.limit,
         )
+
         data = [model_to_dict(c, exclude=["user"]) for c in convs]
+
         return success_response(
-            data={"items": data},
-            meta=build_pagination_meta(params.page, params.page_size, total),
+            data={
+                "items": data,
+                'meta': build_cursor_pagination_meta(
+                    next_cursor=next_cursor,
+                    has_next=has_next,
+                ),
+            },
         )
 
 
