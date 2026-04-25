@@ -26,6 +26,62 @@ except ImportError:
     neo4j_connect = None
 
 
+def _patch_node_import_query():
+    """Monkey-patch _get_node_import_query để dùng dynamic label thay vì
+    apoc.create.addLabels (deprecated từ Neo4j 5.24).
+
+    Áp dụng cho cả langchain_community và langchain_neo4j vì cả hai đều dùng
+    cú pháp cũ.
+    """
+    import logging
+
+    for module_name in (
+        "langchain_community.graphs.neo4j_graph",
+        "langchain_neo4j.graphs.neo4j_graph",
+    ):
+        try:
+            mod = __import__(module_name, fromlist=["_get_node_import_query"])
+            if not hasattr(mod, "_get_node_import_query"):
+                continue
+
+            base_label = getattr(mod, "BASE_ENTITY_LABEL", "__Entity__")
+            include_docs = getattr(mod, "include_docs_query", "")
+
+            def _make_patched(base_label=base_label, include_docs=include_docs):
+                def _patched(baseEntityLabel: bool, include_source: bool) -> str:
+                    if baseEntityLabel:
+                        return (
+                            f"{include_docs if include_source else ''}"
+                            "UNWIND $data AS row "
+                            f"MERGE (source:`{base_label}` {{id: row.id}}) "
+                            "SET source += row.properties "
+                            "SET source:$(row.type) "
+                            f"{'MERGE (d)-[:MENTIONS]->(source) ' if include_source else ''}"
+                            "RETURN distinct 'done' AS result"
+                        )
+                    else:
+                        return (
+                            f"{include_docs if include_source else ''}"
+                            "UNWIND $data AS row "
+                            "CALL apoc.merge.node([row.type], {id: row.id}, "
+                            "row.properties, {}) YIELD node "
+                            f"{'MERGE (d)-[:MENTIONS]->(node) ' if include_source else ''}"
+                            "RETURN distinct 'done' AS result"
+                        )
+                return _patched
+
+            mod._get_node_import_query = _make_patched()
+            logging.getLogger(__name__).info(
+                "Patched %s._get_node_import_query (dynamic labels)", module_name
+            )
+        except ImportError:
+            pass
+
+
+# Áp dụng patch ngay khi module được import
+_patch_node_import_query()
+
+
 class GraphIngestionService:
     def __init__(self):
         self.llm = LLMModel().get_ollama()

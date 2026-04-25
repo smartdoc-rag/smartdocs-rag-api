@@ -1,5 +1,5 @@
 import os
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from django.conf import settings
 from langchain_classic.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
@@ -11,6 +11,7 @@ from src.core.rag.cross_encoder import CrossEncoderReranker
 from src.services.rag.file_ingestion_service import FileIngestionService
 from src.services.rag.rag_service import RAGService
 from src.services.rag.graph_rag_service import GraphRAGService
+from src.services.thread_pool_service import ThreadPoolService, get_thread_pool
 from src.repositories.conversation_repository import ConversationRepository
 from src.repositories.request_message_repository import RequestMessageRepository
 from src.repositories.response_message_repository import ResponseMessageRepository
@@ -41,6 +42,7 @@ class ChatService:
         stat_repo: MessageStatRepository,
         ingestion_service: FileIngestionService,
         reranker: CrossEncoderReranker,
+        thread_pool_service: Optional[ThreadPoolService] = None,
     ):
         self.conv_repo = conv_repo
         self.req_repo = req_repo
@@ -52,6 +54,7 @@ class ChatService:
         self.ingestion_service = ingestion_service
         self.embedding = get_embedding()
         self.reranker = reranker
+        self.thread_pool = thread_pool_service or get_thread_pool()
 
     def _get_vector_store_path(self, conversation_id: int) -> str:
         return os.path.join(VECTOR_DB_ROOT, f"conv_{conversation_id}")
@@ -160,24 +163,13 @@ class ChatService:
             if resp:
                 chat_history.append((req.content, resp.content))
 
-        # Retrieve
-        retrieved_docs = []
-        if response_type == "rag":
-            retrieved_docs = self._retrieve_chunks_filtered(
-                conversation_id,
-                question,
-                top_k=top_k * 2 if use_reranking else top_k,
-                selected_file_ids=selected_file_ids,
-                search_type=search_type,
-            )
-            if use_reranking and retrieved_docs:
-                retrieved_docs = self._rerank_docs(
-                    question, retrieved_docs, top_k=top_k
-                )
-
         # Chọn RAG service dựa trên response_type
         if response_type == "graph_rag":
             rag = GraphRAGService()
+        elif response_type == "dual":
+            rag_primary = RAGService()
+            rag_graph = GraphRAGService()
+            rag = rag_primary  # dùng cho rewrite/evaluate
         else:
             rag = RAGService()
 
@@ -185,7 +177,7 @@ class ChatService:
         if use_self_rag and chat_history:
             final_question = rag.rewrite_query(question, chat_history)
 
-            # Retrieve (chỉ một lần)
+        # Retrieve (chỉ một lần)
         retrieve_top_k = top_k * 2 if (use_reranking or use_self_rag) else top_k
         retrieved_docs = self._retrieve_chunks_filtered(
             conversation_id,
@@ -201,13 +193,24 @@ class ChatService:
         elif use_self_rag and not use_reranking:
             retrieved_docs = retrieved_docs[:top_k]
 
-        answer = rag.chat_flow(
-            final_question, context_docs=retrieved_docs, chat_history=chat_history
-        )
+        # Sinh câu trả lời — chạy song song nếu là dual mode
+        if response_type == "dual":
+            answer = self._ask_dual(
+                final_question,
+                retrieved_docs,
+                chat_history,
+                use_self_rag,
+                top_k,
+                conversation_id,
+            )
+        else:
+            answer = rag.chat_flow(
+                final_question, context_docs=retrieved_docs, chat_history=chat_history
+            )
 
-        # Self-evaluation
+        # Self-evaluation (chỉ dùng cho single mode; dual đã tự đánh giá bên trong)
         confidence = None
-        if use_self_rag:
+        if use_self_rag and response_type != "dual":
             context_text = "\n".join([doc.page_content for doc in retrieved_docs])
             evaluation = rag.evaluate_answer(final_question, answer, context_text)
             confidence = evaluation.get("confidence")
@@ -289,6 +292,57 @@ class ChatService:
             "confidence": confidence,
             "rewritten_query": final_question if use_self_rag else None,
         }
+
+    def _ask_dual(
+        self,
+        question: str,
+        retrieved_docs: list,
+        chat_history: list,
+        use_self_rag: bool,
+        top_k: int,
+        conversation_id: int,
+    ) -> str:
+        """Chạy RAG và GraphRAG song song, kết hợp câu trả lời.
+
+        Sử dụng thread pool để chạy RAGService và GraphRAGService đồng thời.
+        Kết quả từ cả hai được hợp nhất: RAG làm chính, GraphRAG bổ sung.
+        """
+        rag_service = RAGService()
+        graph_service = GraphRAGService()
+
+        def _run_rag():
+            return rag_service.chat_flow(
+                question, context_docs=retrieved_docs, chat_history=chat_history
+            )
+
+        def _run_graph_rag():
+            return graph_service.chat_flow(
+                question, context_docs=retrieved_docs, chat_history=chat_history
+            )
+
+        dual_results = self.thread_pool.run_parallel([_run_rag, _run_graph_rag])
+
+        rag_answer = (
+            "" if isinstance(dual_results[0], Exception) else dual_results[0]
+        )
+        graph_answer = (
+            "" if isinstance(dual_results[1], Exception) else dual_results[1]
+        )
+
+        # Kết hợp: RAG làm chính, GraphRAG bổ sung
+        if rag_answer and graph_answer:
+            combined = (
+                f"{rag_answer}\n\n---\n"
+                f"**Bổ sung từ Graph RAG:**\n{graph_answer}"
+            )
+        elif rag_answer:
+            combined = rag_answer
+        elif graph_answer:
+            combined = graph_answer
+        else:
+            combined = "Không thể tạo câu trả lời từ cả hai nguồn."
+
+        return combined
 
     def get_history(self, conversation_id: int, user_id: int, skip=0, limit=50):
         conv = self.conv_repo.get_user_conversation_by_id(user_id, conversation_id)

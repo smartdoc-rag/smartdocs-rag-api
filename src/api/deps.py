@@ -19,6 +19,7 @@ from src.services.auth_service import AuthService
 from src.services.chat_service import ChatService
 from src.services.rag.file_ingestion_service import FileIngestionService
 from src.services.user_service import UserService
+from src.services.thread_pool_service import get_thread_pool
 from src.repositories.user_repository import UserRepository
 from src.repositories.token_repository import TokenRepository
 
@@ -42,6 +43,7 @@ def chat_service() -> ChatService:
         stat_repo=MessageStatRepository(),
         ingestion_service=FileIngestionService(),
         reranker=CrossEncoderReranker(),
+        thread_pool_service=get_thread_pool(),
     )
 
 
@@ -56,4 +58,5 @@ def file_service() -> FileService:
         chunk_repo=ChunkRepository(),
         ingestion_service=FileIngestionService(),
         graph_ingestion_service=GraphIngestionService(),
+        thread_pool_service=get_thread_pool(),
     )

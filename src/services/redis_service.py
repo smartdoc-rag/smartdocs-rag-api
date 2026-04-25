@@ -52,7 +52,7 @@ class RedisService:
     def get_selected_files(self, conversation_id):
         if not self.redis_instance:
             return []
-        
+
         try:
             key = f"conversation:{conversation_id}:selected_files"
             file_ids_str = self.redis_instance.get(key)
@@ -62,3 +62,37 @@ class RedisService:
         except Exception as e:
             logger.error(f"Error getting files: {e}")
             return []
+
+    def add_selected_file(self, conversation_id: int, file_id: int):
+        """Atomically thêm file_id vào danh sách selected files.
+
+        Dùng Redis WATCH + MULTI/EXEC để tránh race condition
+        khi nhiều file upload đồng thời trong cùng conversation.
+        """
+        if not self.redis_instance:
+            return
+        key = f"conversation:{conversation_id}:selected_files"
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                self.redis_instance.watch(key)
+                current = self.redis_instance.get(key)
+                file_ids = set()
+                if current:
+                    file_ids = set(int(fid) for fid in current.split(',') if fid)
+                file_ids.add(file_id)
+                pipe = self.redis_instance.pipeline()
+                pipe.multi()
+                pipe.set(key, ",".join(map(str, file_ids)))
+                pipe.execute()
+                return
+            except redis.WatchError:
+                if attempt == max_retries - 1:
+                    logger.warning(
+                        "Failed to atomically add selected file %s after %d retries",
+                        file_id, max_retries
+                    )
+                continue
+            except Exception as e:
+                logger.error(f"Error adding selected file: {e}")
+                return
