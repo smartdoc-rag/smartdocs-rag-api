@@ -4,6 +4,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class CrossEncoderReranker:
     _instance = None
     _model = None
@@ -15,7 +16,9 @@ class CrossEncoderReranker:
 
     def get_model(self):
         if self._model is None:
-            model_name = getattr(settings, 'CROSS_ENCODER_MODEL', 'cross-encoder/ms-marco-MiniLM-L-6-v2')
+            model_name = getattr(
+                settings, "CROSS_ENCODER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2"
+            )
             try:
                 self._model = CrossEncoder(model_name)
                 logger.info(f"Loaded cross-encoder model: {model_name}")
@@ -24,7 +27,9 @@ class CrossEncoderReranker:
                 self._model = None
         return self._model
 
-    def rerank(self, query: str, documents: list, top_k: int = 5, keep_scores: bool = True):
+    def rerank(
+        self, query: str, documents: list, top_k: int = 3, keep_scores: bool = True
+    ):
         """
         Re-rank documents using cross-encoder.
         Returns top_k documents sorted by relevance.
@@ -40,7 +45,11 @@ class CrossEncoderReranker:
 
         # Gắn score vào metadata và sắp xếp
         for doc, score in zip(documents, scores):
-            doc.metadata['cross_encoder_score'] = float(score)
+            doc.metadata["cross_encoder_score"] = float(score)
 
-        sorted_docs = sorted(documents, key=lambda d: d.metadata.get('cross_encoder_score', 0), reverse=True)
+        sorted_docs = sorted(
+            documents,
+            key=lambda d: d.metadata.get("cross_encoder_score", 0),
+            reverse=True,
+        )
         return sorted_docs[:top_k]

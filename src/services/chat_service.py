@@ -64,7 +64,7 @@ class ChatService:
             )
         return None
 
-    def _rerank_docs(self, query: str, docs: list, top_k: int = 5) -> list:
+    def _rerank_docs(self, query: str, docs: list, top_k: int = 3) -> list:
         """Re-rank documents using cross-encoder."""
         if not docs:
             return docs
@@ -74,7 +74,7 @@ class ChatService:
         self,
         conversation_id,
         query,
-        top_k=5,
+        top_k=3,
         selected_file_ids=None,
         search_type="vector",
     ):
@@ -126,7 +126,7 @@ class ChatService:
         response_type: str = "rag",
         search_type: str = "vector",
         use_reranking: bool = False,
-        top_k: int = 5,
+        top_k: int = 3,
         use_self_rag: bool = False,
     ):
 
