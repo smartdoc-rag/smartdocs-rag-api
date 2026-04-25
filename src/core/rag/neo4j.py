@@ -1,4 +1,4 @@
-from langchain_classic.graphs import Neo4jGraph
+from langchain_community.graphs import Neo4jGraph
 from src.settings import NEO4J_PASSWORD, NEO4J_URI, NEO4J_USERNAME
 
 
