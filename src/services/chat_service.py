@@ -1,5 +1,4 @@
 import os
-from typing import List, Optional
 from django.conf import settings
 from langchain_classic.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
@@ -31,16 +30,16 @@ VECTOR_DB_ROOT = os.path.join(settings.BASE_DIR, "vector_db")
 
 class ChatService:
     def __init__(
-        self,
-        conv_repo: ConversationRepository,
-        req_repo: RequestMessageRepository,
-        resp_repo: ResponseMessageRepository,
-        file_repo: FileRepository,
-        selected_repo: RequestSelectedFileRepository,
-        citation_repo: MessageCitationRepository,
-        stat_repo: MessageStatRepository,
-        ingestion_service: FileIngestionService,
-        reranker: CrossEncoderReranker,
+            self,
+            conv_repo: ConversationRepository,
+            req_repo: RequestMessageRepository,
+            resp_repo: ResponseMessageRepository,
+            file_repo: FileRepository,
+            selected_repo: RequestSelectedFileRepository,
+            citation_repo: MessageCitationRepository,
+            stat_repo: MessageStatRepository,
+            ingestion_service: FileIngestionService,
+            reranker: CrossEncoderReranker,
     ):
         self.conv_repo = conv_repo
         self.req_repo = req_repo
@@ -71,289 +70,69 @@ class ChatService:
         return self.reranker.rerank(query, docs, top_k=top_k)
 
     def _retrieve_chunks_filtered(
-        self,
-        conversation_id,
-        query,
-        top_k=5,
-        selected_file_ids=None,
-        search_type="vector",
+            self,
+            conversation_id,
+            query,
+            top_k=5,
+            selected_file_ids=None,
+            search_type="vector",
     ):
+        vectorstore = self._load_vectorstore(conversation_id)
+        if not vectorstore:
+            return []
+
         if search_type == "hybrid":
             retriever = self._get_hybrid_retriever(conversation_id, top_k)
             if not retriever:
                 return []
             docs = retriever.invoke(query)
+            # Với hybrid, bm25 không có score, vector cũng không, nên có thể gán score = 0 hoặc None tùy ý
+            # Nếu muốn score vector, bạn phải tự tính lại, nhưng tạm chấp nhận None
             if selected_file_ids:
                 str_selected = [str(fid) for fid in selected_file_ids]
-                docs = [
-                    doc
-                    for doc in docs
-                    if str(doc.metadata.get("file_id")) in str_selected
-                ]
+                docs = [doc for doc in docs if str(doc.metadata.get("file_id")) in str_selected]
             return docs[:top_k]
         else:
-            # vector search (giữ nguyên)
-            vectorstore = self._load_vectorstore(conversation_id)
-            if not vectorstore:
-                return []
+            # Vector search – LUÔN dùng similarity_search_with_score để lấy điểm
             if selected_file_ids:
                 all_docs = []
                 for fid in selected_file_ids:
-                    docs = vectorstore.similarity_search(
+                    docs_with_scores = vectorstore.similarity_search_with_score(
                         query, k=top_k, filter={"file_id": str(fid)}
                     )
-                    all_docs.extend(docs)
+                    for doc, score in docs_with_scores:
+                        doc.metadata["score"] = float(score)
+                        all_docs.append(doc)
+                # Dedup và sắp xếp theo score (asc)
                 seen = set()
                 unique = []
-                for doc in all_docs:
-                    key = doc.page_content
-                    if key not in seen:
-                        seen.add(key)
+                for doc in sorted(all_docs, key=lambda d: d.metadata.get("score", float('inf'))):
+                    if doc.page_content not in seen:
+                        seen.add(doc.page_content)
                         unique.append(doc)
                 return unique[:top_k]
             else:
-                retriever = self.ingestion_service.get_retriever(
-                    vectorstore, top_k=top_k
+                docs_with_scores = vectorstore.similarity_search_with_score(
+                    query, k=top_k
                 )
-                return retriever.invoke(query)
-
-    def ask(
-        self,
-        conversation_id: int,
-        user_id: int,
-        question: str,
-        selected_file_ids: Optional[List[int]] = None,
-        response_type: str = "rag",
-        search_type: str = "vector",
-        use_reranking: bool = False,
-        top_k: int = 5,
-        use_self_rag: bool = False,
-    ):
-
-        # Kiểm tra quyền
-        conv = self.conv_repo.get_user_conversation_by_id(user_id, conversation_id)
-        if not conv:
-            raise ForbiddenException(
-                "Cuộc hội thoại không tồn tại hoặc không có quyền truy cập"
-            )
-
-        # Tạo request message
-        req_msg = RequestMessage(conversation=conv, content=question)
-        req_msg = self.req_repo.create(req_msg)
-
-        # Lưu selected files nếu có
-        if selected_file_ids:
-            for fid in selected_file_ids:
-                f = self.file_repo.get_one(id=fid, conversation_id=conversation_id)
-                if f:
-                    self.selected_repo.create(
-                        self.selected_repo.model_class(request_message=req_msg, file=f)
-                    )
-
-        # Lấy lịch sử hội thoại
-        chat_history = []
-        # Lấy 5 request mới nhất (từ repository)
-        recent_requests = self.req_repo.get_recent(conversation_id, limit=5)
-        # Đảo ngược để có thứ tự từ cũ đến mới (đúng trình tự hội thoại)
-        for req in reversed(recent_requests):
-            resp = self.resp_repo.get_one(request_message_id=req.id)
-            if resp:
-                chat_history.append((req.content, resp.content))
-
-        # Retrieve
-        retrieved_docs = []
-        if response_type == "rag":
-            retrieved_docs = self._retrieve_chunks_filtered(
-                conversation_id,
-                question,
-                top_k=top_k * 2 if use_reranking else top_k,
-                selected_file_ids=selected_file_ids,
-                search_type=search_type,
-            )
-            if use_reranking and retrieved_docs:
-                retrieved_docs = self._rerank_docs(
-                    question, retrieved_docs, top_k=top_k
-                )
-
-        # Chọn RAG service dựa trên response_type
-        if response_type == "graph_rag":
-            rag = GraphRAGService()
-        else:
-            rag = RAGService()
-
-        final_question = question
-        if use_self_rag and chat_history:
-            final_question = rag.rewrite_query(question, chat_history)
-
-            # Retrieve (chỉ một lần)
-        retrieve_top_k = top_k * 2 if (use_reranking or use_self_rag) else top_k
-        retrieved_docs = self._retrieve_chunks_filtered(
-            conversation_id,
-            final_question,
-            top_k=retrieve_top_k,
-            selected_file_ids=selected_file_ids,
-            search_type=search_type,
-        )
-        if use_reranking and retrieved_docs:
-            retrieved_docs = self._rerank_docs(
-                final_question, retrieved_docs, top_k=top_k
-            )
-        elif use_self_rag and not use_reranking:
-            retrieved_docs = retrieved_docs[:top_k]
-
-        chat_flow_kwargs = {
-            "context_docs": retrieved_docs,
-            "chat_history": chat_history
-        }
-        if response_type == "graph_rag":
-            chat_flow_kwargs["selected_file_ids"] = selected_file_ids
-
-        answer = rag.chat_flow(
-            final_question, **chat_flow_kwargs
-        )
-
-        # Self-evaluation
-        confidence = None
-        if use_self_rag:
-            context_text = "\n".join([doc.page_content for doc in retrieved_docs])
-            evaluation = rag.evaluate_answer(final_question, answer, context_text)
-            confidence = evaluation.get("confidence")
-            if rag.needs_more_info(final_question, answer, confidence):
-                extra_docs = self._retrieve_chunks_filtered(
-                    conversation_id,
-                    f"Cung cấp thêm: {final_question}",
-                    top_k=top_k,
-                    selected_file_ids=selected_file_ids,
-                    search_type=search_type,
-                )
-                if extra_docs:
-                    all_docs = retrieved_docs + extra_docs
-                    seen = set()
-                    unique_docs = []
-                    for doc in all_docs:
-                        key = doc.page_content
-                        if key not in seen:
-                            seen.add(key)
-                            unique_docs.append(doc)
-
-                    chat_flow_extra_kwargs = {
-                        "context_docs": unique_docs[: top_k * 2],
-                        "chat_history": chat_history
-                    }
-                    if response_type == "graph_rag":
-                        chat_flow_extra_kwargs["selected_file_ids"] = selected_file_ids
-
-                    answer = rag.chat_flow(
-                        final_question,
-                        **chat_flow_extra_kwargs
-                    )
-
-        # Tạo response
-        resp_msg = ResponseMessage(
-            request_message=req_msg, content=answer, type=response_type
-        )
-        resp_msg = self.resp_repo.create(resp_msg)
-
-        # Tạo citations
-        citations = []
-        citation_counter = 1
-        for doc in retrieved_docs:
-            file_id = doc.metadata.get("file_id")
-            if file_id:
-                file_obj = self.file_repo.get_one(id=file_id)
-                if file_obj:
-                    start_line, end_line = self._extract_citation_line_numbers(doc)
-                    citation_marker = self._format_citation_marker(
-                        citation_counter, start_line, end_line
-                    )
-
-                    cit = MessageCitation(
-                        file=file_obj,
-                        response_message=resp_msg,
-                        page_number=doc.metadata.get("page", 0),
-                        content_chunk=doc.page_content,
-                        relevance_score=doc.metadata.get("score"),
-                        start_line=start_line,
-                        end_line=end_line,
-                        citation_marker=citation_marker,
-                    )
-                    self.citation_repo.create(cit)
-                    citations.append(cit)
-                    citation_counter += 1
-        # Tạo stat
-        self.stat_repo.create(
-            MessageStat(message=resp_msg, word_count=len(answer.split()))
-        )
-
-        return {
-            "request_id": req_msg.id,
-            "response_id": resp_msg.id,
-            "answer": answer,
-            "citations": [
-                {
-                    "file_name": c.file.file_name,
-                    "page": c.page_number,
-                    "chunk": c.content_chunk,
-                    "marker": c.citation_marker,
-                    "start_line": c.start_line,
-                    "end_line": c.end_line,
-                }
-                for c in citations
-            ],
-            "confidence": confidence,
-            "rewritten_query": final_question if use_self_rag else None,
-        }
-
-    def get_history(self, conversation_id: int, user_id: int, skip=0, limit=50):
-        conv = self.conv_repo.get_user_conversation_by_id(user_id, conversation_id)
-        if not conv:
-            raise ForbiddenException(
-                "Cuộc hội thoại không tồn tại hoặc không có quyền truy cập"
-            )
-        requests, total = self.req_repo.get_by_conversation_id(
-            conversation_id, skip, limit
-        )
-        history = []
-        for req in requests:
-            resp = self.resp_repo.get_one(request_message_id=req.id)
-            history.append(
-                {
-                    "request_id": req.id,
-                    "question": req.content,
-                    "answer": resp.content if resp else "",
-                    "created_at": req.created_at,
-                }
-            )
-        return history, total
-
-    def clear_history(self, conversation_id: int, user_id: int):
-        conv = self.conv_repo.get_user_conversation_by_id(user_id, conversation_id)
-        if not conv:
-            raise ForbiddenException(
-                "Cuộc hội thoại không tồn tại hoặc không có quyền truy cập"
-            )
-        requests, _ = self.req_repo.get_all(
-            conversation_id=conversation_id, limit=10000
-        )
-        for req in requests:
-            # Xóa response message (cascade sẽ xóa citations, stats)
-            self.resp_repo.delete_by_request_message_id(req.id)
-            self.req_repo.delete(req)
-        return True
+                docs = []
+                for doc, score in docs_with_scores:
+                    doc.metadata["score"] = float(score)
+                    docs.append(doc)
+                return docs[:top_k]
 
     def _get_hybrid_retriever(
-        self, conversation_id: int, top_k: int = 5, weights: tuple = (0.5, 0.5)
+            self, conversation_id: int, top_k: int = 5, weights: tuple = (0.5, 0.5)
     ):
         vectorstore = self._load_vectorstore(conversation_id)
         if not vectorstore:
             return None
         vector_retriever = vectorstore.as_retriever(search_kwargs={"k": top_k})
 
-        # Lấy các chunk object có metadata
         chunks = Chunk.objects.filter(conversation_id=conversation_id)
         if not chunks:
             return vector_retriever
-        # Tạo list Document với metadata
+
         from langchain_core.documents import Document
 
         documents = []
@@ -380,15 +159,299 @@ class ChatService:
         start_idx = doc.metadata.get("start_index", 0)
         end_idx = start_idx + len(content)
         start_line = self._get_line_numbers(content, start_idx)
-        # Đối với end_line, lấy vị trí ký tự cuối cùng của chunk (end_idx-1)
         end_line = self._get_line_numbers(content, max(end_idx - 1, 0))
         return start_line, end_line
 
     def _format_citation_marker(
-        self, citation_id: int, start_line: int, end_line: int
+            self, citation_id: int, start_line: int, end_line: int
     ) -> str:
         """Tạo citation marker theo định dạng 【id†Lstart[-Lend]】."""
         if start_line == end_line or end_line == 0:
             return f"【{citation_id}†L{start_line}】"
         else:
             return f"【{citation_id}†L{start_line}-L{end_line}】"
+
+    def _create_conversation_and_check(self, user_id, conversation_id):
+        conv = self.conv_repo.get_user_conversation_by_id(user_id, conversation_id)
+        if not conv:
+            raise ForbiddenException("Cuộc hội thoại không tồn tại hoặc không có quyền truy cập")
+        return conv
+
+    def _create_request_message(self, conv, question, selected_file_ids):
+        req_msg = RequestMessage(conversation=conv, content=question)
+        req_msg = self.req_repo.create(req_msg)
+        if selected_file_ids:
+            for fid in selected_file_ids:
+                f = self.file_repo.get_one(id=fid, conversation_id=conv.id)
+                if f:
+                    self.selected_repo.create(
+                        self.selected_repo.model_class(request_message=req_msg, file=f)
+                    )
+        return req_msg
+
+    def _get_chat_history(self, conversation_id):
+        chat_history = []
+        recent_requests = self.req_repo.get_recent(conversation_id, limit=5)
+        for req in reversed(recent_requests):
+            resp = self.resp_repo.get_one(request_message_id=req.id)
+            if resp:
+                chat_history.append((req.content, resp.content))
+        return chat_history
+
+    def _retrieve_and_rerank(self, final_question, conversation_id, selected_file_ids, search_type,
+                             use_reranking, top_k, use_self_rag):
+        retrieve_top_k = top_k * 2 if (use_reranking or use_self_rag) else top_k
+        docs = self._retrieve_chunks_filtered(
+            conversation_id, final_question, top_k=retrieve_top_k,
+            selected_file_ids=selected_file_ids, search_type=search_type
+        )
+        if use_reranking and docs:
+            docs = self._rerank_docs(final_question, docs, top_k=top_k)
+        elif use_self_rag and not use_reranking:
+            docs = docs[:top_k]
+        return docs
+
+    def _build_rag_citations(self, docs, resp_msg=None):
+        """Trả về list citations (dạng dict hoặc MessageCitation object nếu có resp_msg)."""
+        citations = []
+        if not docs:
+            return citations
+        counter = 1
+        for doc in docs:
+            file_id = doc.metadata.get("file_id")
+            if file_id:
+                file_obj = self.file_repo.get_one(id=file_id)
+                if file_obj:
+                    start_line, end_line = self._extract_citation_line_numbers(doc)
+                    marker = self._format_citation_marker(counter, start_line, end_line)
+                    if resp_msg:
+                        cit = MessageCitation(
+                            file=file_obj,
+                            response_message=resp_msg,
+                            page_number=doc.metadata.get("page", 0),
+                            content_chunk=doc.page_content,
+                            relevance_score=doc.metadata.get("score"),
+                            start_line=start_line,
+                            end_line=end_line,
+                            citation_marker=marker,
+                        )
+                        self.citation_repo.create(cit)
+                        citations.append(cit)
+                    else:
+                        citations.append({
+                            "file_name": file_obj.file_name,
+                            "page": doc.metadata.get("page", 0),
+                            "chunk": doc.page_content,
+                            "marker": marker,
+                            "start_line": start_line,
+                            "end_line": end_line,
+                        })
+                    counter += 1
+        return citations
+
+    def _build_graph_citations(self, citations_raw, resp_msg=None):
+        """Trả về list citations graph (dạng dict hoặc MessageCitation object nếu có resp_msg)."""
+        citations = []
+        if not citations_raw:
+            return citations
+        for idx, cit_info in enumerate(citations_raw, 1):
+            marker = f"【{idx}†G:{cit_info.get('id')}】"
+            entity_name = cit_info.get("name", "")
+            entity_id = cit_info.get("id")
+            entity_type = cit_info.get("type")
+
+            if resp_msg:
+                cit = MessageCitation(
+                    response_message=resp_msg,
+                    file=None,          # Graph citations không gắn với file cụ thể
+                    page_number=None,   # Không có page
+                    content_chunk=None, # Không có chunk text
+                    citation_marker=marker,
+                    graph_entity_id=entity_id,
+                    graph_entity_name=entity_name,
+                    graph_entity_type=entity_type,
+                )
+                self.citation_repo.create(cit)
+                citations.append(cit)
+            else:
+                citations.append({
+                    "graph_entity_id": entity_id,
+                    "graph_entity_name": entity_name,
+                    "graph_entity_type": entity_type,
+                    "marker": marker,
+                })
+        return citations
+
+    def _run_rag_pipeline(self, conversation_id, final_question, selected_file_ids, search_type,
+                          use_reranking, top_k, use_self_rag, chat_history):
+        """
+        Chạy RAG pipeline, trả về (answer, retrieved_docs, confidence).
+        Không lưu citations ở đây — việc lưu DB được tách ra ngoài.
+        """
+        svc = RAGService()
+        retrieved_docs = self._retrieve_and_rerank(
+            final_question, conversation_id, selected_file_ids, search_type,
+            use_reranking, top_k, use_self_rag
+        )
+        answer = svc.chat_flow(final_question, context_docs=retrieved_docs, chat_history=chat_history)
+        confidence = None
+
+        if use_self_rag:
+            context_text = "\n".join([doc.page_content for doc in retrieved_docs]) if retrieved_docs else ""
+            evaluation = svc.evaluate_answer(final_question, answer, context_text)
+            confidence = evaluation.get("confidence")
+
+            # Multi-hop nếu confidence thấp
+            if confidence is not None and confidence < 60:
+                extra_docs = self._retrieve_chunks_filtered(
+                    conversation_id, f"Cung cấp thêm: {final_question}", top_k=top_k,
+                    selected_file_ids=selected_file_ids, search_type=search_type
+                )
+                if extra_docs:
+                    # Dedup bằng dict để giữ thứ tự
+                    merged = {d.page_content: d for d in retrieved_docs + extra_docs}
+                    retrieved_docs = list(merged.values())[:top_k * 2]
+                    answer = svc.chat_flow(
+                        final_question,
+                        context_docs=retrieved_docs,
+                        chat_history=chat_history
+                    )
+
+        return answer, retrieved_docs, confidence
+
+    def _run_graph_pipeline(self, conversation_id, final_question, selected_file_ids,
+                            use_self_rag, chat_history):
+        """
+        Chạy Graph RAG pipeline, trả về (answer, citations_raw, confidence).
+        Không lưu citations ở đây — việc lưu DB được tách ra ngoài.
+        """
+        svc = GraphRAGService()
+        result = svc.chat_flow(
+            final_question,
+            context_docs=None,
+            chat_history=chat_history,
+            selected_file_ids=selected_file_ids
+        )
+
+        if isinstance(result, dict):
+            answer = result.get("answer", "")
+            citations_raw = result.get("citations", [])
+        else:
+            answer = result
+            citations_raw = []
+
+        # Tính confidence nếu cần (dùng RAGService vì GraphRAG không có context text)
+        confidence = None
+        if use_self_rag:
+            temp_rag = RAGService()
+            evaluation = temp_rag.evaluate_answer(final_question, answer, "")
+            confidence = evaluation.get("confidence")
+
+        return answer, citations_raw, confidence
+
+    def ask(self, conversation_id, user_id, question,
+            selected_file_ids=None,
+            response_type="rag",
+            search_type="vector",
+            use_reranking=False,
+            top_k=5,
+            use_self_rag=False):
+
+        # 1. Kiểm tra conversation và tạo request message
+        conv = self._create_conversation_and_check(user_id, conversation_id)
+        req_msg = self._create_request_message(conv, question, selected_file_ids)
+        chat_history = self._get_chat_history(conversation_id)
+
+        # 2. Rewrite query nếu dùng self-rag
+        final_question = question
+        if use_self_rag and chat_history:
+            temp_svc = RAGService()
+            final_question = temp_svc.rewrite_query(question, chat_history)
+
+        # 3. Dual mode — không lưu DB, chỉ trả kết quả so sánh
+        if response_type == "dual":
+            rag_answer, rag_docs, rag_conf = self._run_rag_pipeline(
+                conversation_id, final_question, selected_file_ids, search_type,
+                use_reranking, top_k, use_self_rag, chat_history
+            )
+            rag_citations = self._build_rag_citations(rag_docs, resp_msg=None)
+
+            graph_answer, graph_citations_raw, graph_conf = self._run_graph_pipeline(
+                conversation_id, final_question, selected_file_ids,
+                use_self_rag, chat_history
+            )
+            graph_citations = self._build_graph_citations(graph_citations_raw, resp_msg=None)
+
+            return {
+                "request_id": req_msg.id,
+                "rag": {"answer": rag_answer, "citations": rag_citations, "confidence": rag_conf},
+                "graph_rag": {"answer": graph_answer, "citations": graph_citations, "confidence": graph_conf},
+                "rewritten_query": final_question if use_self_rag else None,
+            }
+
+        # 4. Single mode RAG
+        if response_type == "rag":
+            # Chạy pipeline 1 lần duy nhất
+            answer, retrieved_docs, confidence = self._run_rag_pipeline(
+                conversation_id, final_question, selected_file_ids, search_type,
+                use_reranking, top_k, use_self_rag, chat_history
+            )
+
+            # Tạo response message trước
+            resp_msg = ResponseMessage(request_message=req_msg, content=answer, type=response_type)
+            resp_msg = self.resp_repo.create(resp_msg)
+
+            # Lưu citations vào DB với resp_msg đã có (chỉ gọi 1 lần)
+            citations_objs = self._build_rag_citations(retrieved_docs, resp_msg=resp_msg)
+
+            self.stat_repo.create(MessageStat(message=resp_msg, word_count=len(answer.split())))
+
+            return {
+                "request_id": req_msg.id,
+                "response_id": resp_msg.id,
+                "answer": answer,
+                "citations": [
+                    {
+                        "file_name": c.file.file_name,
+                        "page": c.page_number,
+                        "chunk": c.content_chunk,
+                        "marker": c.citation_marker,
+                        "start_line": c.start_line,
+                        "end_line": c.end_line,
+                    } for c in citations_objs
+                ],
+                "confidence": confidence,
+                "rewritten_query": final_question if use_self_rag else None,
+            }
+
+        # 5. Single mode GraphRAG
+        if response_type == "graph_rag":
+            # Chạy pipeline 1 lần duy nhất
+            answer, citations_raw, confidence = self._run_graph_pipeline(
+                conversation_id, final_question, selected_file_ids,
+                use_self_rag, chat_history
+            )
+
+            # Tạo response message trước
+            resp_msg = ResponseMessage(request_message=req_msg, content=answer, type=response_type)
+            resp_msg = self.resp_repo.create(resp_msg)
+
+            # Lưu citations vào DB với resp_msg đã có (chỉ gọi 1 lần)
+            citations_objs = self._build_graph_citations(citations_raw, resp_msg=resp_msg)
+
+            self.stat_repo.create(MessageStat(message=resp_msg, word_count=len(answer.split())))
+
+            return {
+                "request_id": req_msg.id,
+                "response_id": resp_msg.id,
+                "answer": answer,
+                "citations": [
+                    {
+                        "marker": c.citation_marker if hasattr(c, "citation_marker") else c.get("marker"),
+                        "graph_entity_name": c.graph_entity_name if hasattr(c, "graph_entity_name") else c.get("graph_entity_name"),
+                        "graph_entity_type": c.graph_entity_type if hasattr(c, "graph_entity_type") else c.get("graph_entity_type"),
+                    } for c in citations_objs
+                ],
+                "confidence": confidence,
+                "rewritten_query": final_question if use_self_rag else None,
+            }

@@ -90,6 +90,8 @@ chain = GraphCypherQAChain.from_llm(
     llm=llm,
     graph=graph,
     cypher_prompt=cypher_prompt,
+
+
     verbose=True,
     allow_dangerous_requests=True,  # Bạn cần cấp quyền này để chain thực thi truy vấn Cypher
 )

@@ -1,7 +1,5 @@
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict, Any
 from langchain_core.documents import Document
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 from langchain_core.prompts import PromptTemplate
 from src.core.rag.llm_model import LLMModel
 from src.core.rag.prompt import PROMPT_VI, PROMPT_EN, _is_vietnamese
@@ -9,10 +7,12 @@ from src.core.rag.prompt import PROMPT_VI, PROMPT_EN, _is_vietnamese
 # Optional imports for Neo4j
 try:
     from langchain_neo4j import GraphCypherQAChain
+
     GRAPHCYPHER_AVAILABLE = True
 except ImportError:
     try:
         from langchain_classic import GraphCypherQAChain
+
         GRAPHCYPHER_AVAILABLE = True
     except ImportError:
         GRAPHCYPHER_AVAILABLE = False
@@ -20,6 +20,7 @@ except ImportError:
 
 try:
     from src.core.rag.neo4j import neo4j_connect
+
     NEO4J_CONNECT_AVAILABLE = True
 except ImportError:
     NEO4J_CONNECT_AVAILABLE = False
@@ -44,41 +45,179 @@ class GraphRAGService:
             self.graph = neo4j_connect()
         except Exception as e:
             self.graph_error = str(e)
-            # Log warning
             import logging
             logging.getLogger(__name__).warning(f"Failed to connect to Neo4j: {e}")
 
+    # ──────────────────────────────────────────────
+    #  PHẦN SỬA CHÍNH: TRÍCH XUẤT CITATION MỚI
+    # ──────────────────────────────────────────────
+    def _extract_citations_from_result(self, chain_result: Dict[str, Any]) -> List[Dict[str, str]]:
+        """Trích xuất citations từ kết quả của GraphCypherQAChain.
+        Hỗ trợ nhiều dạng record: node object, dict, và chuỗi scalar từ RETURN p.id...
+        """
+        citations = []
+        context = []
+
+        intermediate = chain_result.get("intermediate_steps", [])
+        if len(intermediate) >= 2 and isinstance(intermediate[1], dict):
+            context = intermediate[1].get("context", [])
+        if not context:
+            for step in intermediate:
+                if isinstance(step, dict) and "context" in step:
+                    context = step["context"]
+                    break
+
+        for record in context:
+            if not isinstance(record, dict):
+                continue
+
+            # Bước 1: Parse record thành dict chuẩn bằng cách loại bỏ prefix alias
+            parsed = {}
+            alias_type = None  # để suy loại thực thể
+            for k, v in record.items():
+                if isinstance(v, str) and '.' in k:
+                    # Key dạng "p.id" -> tách thành base_key "id"
+                    prefix, base_key = k.split('.', 1)
+                    parsed[base_key] = v
+                    # Thử nhận diện loại thực thể từ prefix
+                    if prefix.lower() in ['p', 'person']:
+                        alias_type = 'Person'
+                    elif prefix.lower() in ['o', 'org', 'organization']:
+                        alias_type = 'Organization'
+                    elif prefix.lower() in ['t', 'tech', 'technology']:
+                        alias_type = 'Technology'
+                    # ... có thể mở rộng thêm
+                else:
+                    parsed[k] = v
+
+            # Bước 2: Lấy id, name, type, file_id
+            node_id = (parsed.get('id') or
+                       parsed.get('document_id') or
+                       parsed.get('d.id'))  # dạng alias d.id có thể đã được parse
+            name = (parsed.get('name') or
+                    parsed.get('file_name') or
+                    parsed.get('title') or
+                    parsed.get('d.title'))
+            file_id = parsed.get('file_id') or parsed.get('d.file_id') or None
+            entity_type = parsed.get('type') or alias_type or 'Node'
+
+            # Nếu record chứa trực tiếp một node object (có .id và .labels)
+            if len(record) == 1:
+                only_value = list(record.values())[0]
+                if hasattr(only_value, 'id') and hasattr(only_value, 'labels'):
+                    node_id = str(only_value.id)
+                    name = only_value.get('file_name', only_value.get('title', only_value.get('name', ''))) or str(only_value)
+                    entity_type = list(only_value.labels)[0] if only_value.labels else 'Node'
+                    file_id = only_value.get('file_id', None)
+                elif isinstance(only_value, dict):
+                    # nested dict: lấy từ dict con
+                    node_id = only_value.get('id') or only_value.get('document_id')
+                    name = only_value.get('name') or only_value.get('file_name') or only_value.get('title')
+                    if not name and node_id:
+                        name = str(node_id)
+                    file_id = only_value.get('file_id', None)
+                    entity_type = only_value.get('type', 'Document')
+                elif isinstance(only_value, str):
+                    # Giá trị chuỗi đơn (scalar) – dùng luôn làm id và name
+                    node_id = only_value
+                    name = only_value
+                    entity_type = alias_type or 'Node'
+
+            # Nếu vẫn chưa có name nhưng có id, gán name = id
+            if not name and node_id:
+                name = str(node_id)
+            elif not name:
+                name = "Unknown"
+
+            # Bỏ qua nếu không có id
+            if not node_id:
+                continue
+
+            citations.append({
+                "id": node_id,
+                "name": name,
+                "type": entity_type,
+                "file_id": file_id,
+            })
+
+        # Loại bỏ trùng lặp dựa trên id
+        seen = set()
+        unique = []
+        for cit in citations:
+            cid = cit.get("id")
+            if cid and cid not in seen:
+                seen.add(cid)
+                unique.append(cit)
+            elif not cid:
+                unique.append(cit)
+        return unique
+
+    # ──────────────────────────────────────────────
+    #  PROMPT MỚI VỚI VÍ DỤ FEW‑SHOT
+    # ──────────────────────────────────────────────
     def _get_cypher_prompt(self, selected_file_ids: Optional[List[int]] = None) -> PromptTemplate:
-        """Tạo prompt cho Cypher generation"""
         file_filter = ""
         if selected_file_ids:
-            file_ids_str = ", ".join([f"'{fid}'" for fid in selected_file_ids])
-            file_filter = f"\n5. IMPORTANT: You must ONLY search within nodes or entities related to the following file_ids: [{file_ids_str}]. If a node represents a Document or Chunk, it MUST have a file_id IN [{file_ids_str}]. If it is an entity, it MUST be connected to a Chunk/Document with a file_id IN [{file_ids_str}]."
+            file_ids_str = ", ".join([str(fid) for fid in selected_file_ids])
+            file_filter = (
+                "\n5. CRITICAL: Only query nodes with file_id IN [" + file_ids_str + "]."
+                "\n   - For Document nodes: WHERE d.file_id IN [" + file_ids_str + "]"
+                "\n   - For entities: ensure connected Document has file_id IN [" + file_ids_str + "]"
+            )
 
-        template = f"""
-            You are a Neo4j expert. Given the following graph schema:
-            {{schema}}
+        # Các ví dụ mẫu (few‑shot) được nhúng trực tiếp
+        examples = """
+Examples of how to answer questions using the graph:
 
-            Instructions:
-            1. Focus on finding entities (like Person, Organization, etc.) that match the keywords in the question.
-            2. If you find an entity, also look for its relationships to understand the context.
-            3. For text matching, use:
-                - CONTAINS for substring matching: WHERE c.text CONTAINS 'keyword'
-                - toLower() for case-insensitive: WHERE toLower(c.text) CONTAINS 'keyword'
-                - Regex for flexible matching: WHERE c.text =~ '(?i).*keyword.*'
-                IMPORTANT: Do not use ILIKE as it is not valid Cypher syntax.
-            4. If no specific entity is found, fall back to searching in 'Chunk' nodes.{file_filter}
+Question: "CV nói về ai?"
+Cypher: MATCH (d:Document)-[:MENTIONS]->(p:Person)
+        WHERE toLower(d.file_name) CONTAINS 'cv' OR toLower(d.title) CONTAINS 'cv'
+        RETURN p.id AS id, 'Person' AS type
 
-            Question: {{question}}
-            Cypher Query:
-            """
-        return PromptTemplate(
-            input_variables=["schema", "question"],
-            template=template,
+Question: "Ai là tác giả của tài liệu này?" (when referring to a specific document)
+Cypher: MATCH (d:Document)-[:HAS_AUTHOR]->(p:Person)
+        WHERE toLower(d.file_name) CONTAINS 'tai_lieu_x'
+        RETURN p.id AS id, 'Person' AS type
+
+Question: "What technologies are mentioned in the architecture document?"
+Cypher: MATCH (d:Document)-[:MENTIONS]->(t:Technology)
+        WHERE toLower(d.file_name) CONTAINS 'architecture'
+        RETURN t.id AS id, 'Technology' AS type
+
+Question: "Which organization uses React?"
+Cypher: MATCH (o:Organization)-[:RELY_ON]->(t:Technology)
+        WHERE toLower(t.name) = 'react'
+        RETURN o.id AS id, 'Organization' AS type
+
+Question: "List all people with Python skill"
+Cypher: MATCH (p:Person)-[:HAS_SKILL]->(s:Skill)
+        WHERE toLower(s.name) = 'python'
+        RETURN p.id AS id, 'Person' AS type
+
+Always use aliases in RETURN: `RETURN x.property AS id, 'EntityType' AS type`.
+When the question asks about "who", "ai", "tác giả", "author", you MUST search for Person nodes via MENTIONS or HAS_AUTHOR relationships.
+If you need a name but the node only has an id, use that id as the name.
+"""
+
+        template = (
+            "Task: Generate Cypher statement to query a graph database.\n"
+            "Instructions:\n"
+            "Use only the provided relationship types and properties in the schema.\n"
+            "Do not use any other relationship types or properties that are not provided.\n"
+            "Schema:\n"
+            "{schema}\n"
+            "Note: Do not include any explanations or apologies in your responses.\n"
+            "Do not include any text except the generated Cypher statement.\n"
+            "For text matching use CONTAINS or toLower(), NOT ILIKE.\n"
+            "If no specific entity is found, fall back to searching Chunk nodes."
+            + file_filter
+            + "\n\n" + examples + "\nThe question is:\n{question}"
         )
 
+        # Prompt chỉ nhận 2 biến: schema (tự động từ Neo4j) và question
+        return PromptTemplate(input_variables=["schema", "question"], template=template)
+
     def _create_chain(self, selected_file_ids: Optional[List[int]] = None):
-        """Tạo GraphCypherQAChain"""
         if not self.neo4j_available or self.graph is None or GraphCypherQAChain is None:
             raise ValueError(
                 "Neo4j graph not available. Cannot create GraphCypherQAChain."
@@ -90,103 +229,110 @@ class GraphRAGService:
             cypher_prompt=cypher_prompt,
             verbose=True,
             allow_dangerous_requests=True,
+            return_intermediate_steps=True,
         )
         return chain
 
+    # Các phương thức còn lại giữ nguyên hoàn toàn
     def chat_flow(
-        self,
-        user_input: str,
-        context_docs: Optional[List[Document]] = None,
-        chat_history: Optional[List[Tuple[str, str]]] = None,
-        selected_file_ids: Optional[List[int]] = None,
-    ) -> str:
-        """
-        Luồng chat sử dụng Graph RAG.
-        Nếu có context_docs (từ vector search), kết hợp graph và vector.
-        Nếu không có context_docs, chỉ query graph.
-        Nếu graph không khả dụng, fallback sang RAG thông thường.
-        """
-        # Nếu graph không khả dụng, fallback sang RAGService
+            self,
+            user_input: str,
+            context_docs: Optional[List[Document]] = None,
+            chat_history: Optional[List[Tuple[str, str]]] = None,
+            selected_file_ids: Optional[List[int]] = None,
+    ) -> Dict[str, Any]:
         if not self.neo4j_available or self.graph is None:
             from src.services.rag.rag_service import RAGService
-
             rag = RAGService()
-            return rag.chat_flow(
-                user_input, context_docs=context_docs, chat_history=chat_history
-            )
+            answer = rag.chat_flow(user_input, context_docs=context_docs, chat_history=chat_history)
+            return {"answer": answer, "citations": []}
 
-        # Xử lý lịch sử hội thoại (chỉ lấy 5 cặp gần nhất)
-        history_text = ""
-        if chat_history:
-            for user_msg, assistant_msg in chat_history[-5:]:
-                history_text += f"Người dùng: {user_msg}\nTrợ lý: {assistant_msg}\n"
-
-        # Nếu có context_docs, thực hiện hybrid search
         if context_docs:
-            return self.hybrid_search(user_input, context_docs, chat_history, selected_file_ids)
+            from src.services.rag.rag_service import RAGService
+            rag = RAGService()
+            answer = rag.chat_flow(user_input, context_docs=context_docs, chat_history=chat_history)
+            return {"answer": answer, "citations": []}
 
-        # Chỉ query graph
-        chain = self._create_chain(selected_file_ids)
-        answer = chain.invoke({"query": user_input})
-        result = answer.get("result", "")
-        return result
+        answer, citations = self.query_graph(user_input, selected_file_ids)
 
-    def query_graph(self, question: str, selected_file_ids: Optional[List[int]] = None) -> str:
-        """Truy vấn đồ thị Neo4j trực tiếp"""
-        if not self.neo4j_available or self.graph is None:
-            raise ValueError("Neo4j graph not available.")
+        if selected_file_ids:
+            str_selected = [str(fid) for fid in selected_file_ids]
+            filtered_citations = []
+            for cit in citations:
+                if cit.get("file_id") and str(cit["file_id"]) in str_selected:
+                    filtered_citations.append(cit)
+                else:
+                    filtered_citations.append(cit)  # hoặc bỏ qua tùy ý
+            citations = filtered_citations
+
+        citations_output = [{"id": c["id"], "name": c["name"], "type": c["type"]} for c in citations]
+        return {"answer": answer, "citations": citations_output}
+
+    def query_graph(self, question: str, selected_file_ids: Optional[List[int]] = None) -> Tuple[
+        str, List[Dict[str, str]]]:
+        import logging
+        logger = logging.getLogger(__name__)
+
+        try:
+            logger.warning(f"[GraphRAG] Graph schema: {self.graph.schema}")
+        except Exception as se:
+            logger.warning(f"[GraphRAG] Could not get schema: {se}")
+
         chain = self._create_chain(selected_file_ids)
-        answer = chain.invoke({"query": question})
-        return answer.get("result", "")
+        result = chain.invoke({"query": question})
+
+        logger.warning(f"[GraphRAG] intermediate_steps count: {len(result.get('intermediate_steps', []))}")
+        for i, step in enumerate(result.get('intermediate_steps', [])):
+            logger.warning(f"[GraphRAG] step[{i}] keys: {list(step.keys()) if isinstance(step, dict) else type(step)}")
+            if isinstance(step, dict) and "query" in step:
+                logger.warning(f"[GraphRAG] generated cypher: {step['query']}")
+            if isinstance(step, dict) and "context" in step:
+                ctx = step["context"]
+                logger.warning(f"[GraphRAG] context len: {len(ctx) if ctx else 0}")
+                if ctx:
+                    for ci, c in enumerate(ctx):
+                        logger.warning(f"[GraphRAG] context[{ci}]: {c}")
+
+        answer = result.get("result", "")
+        citations = self._extract_citations_from_result(result)
+        return answer, citations
 
     def hybrid_search(
-        self,
-        question: str,
-        vector_docs: List[Document],
-        chat_history: Optional[List[Tuple[str, str]]] = None,
-        selected_file_ids: Optional[List[int]] = None,
+            self,
+            question: str,
+            vector_docs: List[Document],
+            chat_history: Optional[List[Tuple[str, str]]] = None,
+            selected_file_ids: Optional[List[int]] = None,
     ) -> str:
-        """
-        Kết hợp graph query và vector search.
-        Nếu graph trả về kết quả tốt, dùng graph; ngược lại dùng RAG thông thường.
-        Nếu graph không khả dụng, fallback sang RAG thông thường.
-        """
         if not self.neo4j_available or self.graph is None:
             from src.services.rag.rag_service import RAGService
-
             rag = RAGService()
             return rag.chat_flow(
                 question, context_docs=vector_docs, chat_history=chat_history
             )
 
         graph_answer = self.query_graph(question, selected_file_ids)
-        # Nếu graph answer không đủ, sử dụng vector docs với RAG
         if not graph_answer or "I don't know" in graph_answer.lower():
             from src.services.rag.rag_service import RAGService
-
             rag = RAGService()
             return rag.chat_flow(
                 question, context_docs=vector_docs, chat_history=chat_history
             )
         return graph_answer
 
-    # Các phương thức hỗ trợ self_rag (delegate tới RAGService)
     def rewrite_query(
-        self, original_query: str, chat_history: List[Tuple[str, str]] = None
+            self, original_query: str, chat_history: List[Tuple[str, str]] = None
     ) -> str:
         from src.services.rag.rag_service import RAGService
-
         rag = RAGService()
         return rag.rewrite_query(original_query, chat_history)
 
     def evaluate_answer(self, question: str, answer: str, context: str) -> dict:
         from src.services.rag.rag_service import RAGService
-
         rag = RAGService()
         return rag.evaluate_answer(question, answer, context)
 
     def needs_more_info(self, question: str, answer: str, confidence: int) -> bool:
         from src.services.rag.rag_service import RAGService
-
         rag = RAGService()
         return rag.needs_more_info(question, answer, confidence)
