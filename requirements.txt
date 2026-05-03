@@ -28,3 +28,4 @@ langchain-classic
 neo4j
 langchain_neo4j
 langchain_experimental
+python-dotenv

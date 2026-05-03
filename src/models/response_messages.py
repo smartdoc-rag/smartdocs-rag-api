@@ -20,7 +20,7 @@ class ResponseMessage(TimestampModel):
     )
 
     def __str__(self):
-        return f"ResponseMessage {self.id} - {self.content[:50]}..."
+        return f"ResponseMessage {self.id} - {self.content[:100]}..."
 
     class Meta:
         db_table = "response_messages"

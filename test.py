@@ -1,4 +1,4 @@
-from src.settings import NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, HF_TOKEN
+from src.settings import NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD,NEO4J_DATABASE, HF_TOKEN
 from langchain_neo4j import GraphCypherQAChain, Neo4jGraph, Neo4jVector
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_experimental.graph_transformers import LLMGraphTransformer
@@ -9,15 +9,15 @@ graph = Neo4jGraph(
     url=NEO4J_URI,
     username=NEO4J_USERNAME,
     password=NEO4J_PASSWORD,
-    database=NEO4J_USERNAME
+    database=NEO4J_DATABASE
 )
 
 from langchain_ollama import OllamaLLM
 
-llm = OllamaLLM(model="qwen3.5:cloud", temperature=0, top_p=0.9, repeat_penalty=1.1)
+llm = OllamaLLM(model="deepseek-v3.1:671b-cloud", temperature=0, top_p=0.9, repeat_penalty=1.1)
 
 graph_docs_raw = PyPDFLoader(
-    "media/files/1fd4d245-c210-4e20-b22e-17e60be245c3_1-Gioithieu.pdf",
+    "media/files/e1f790d9-0879-4aeb-b462-a6cded0e17ef_cv.pdf",
 )
 
 MARKDOWN_SEPARATORS = [
@@ -53,7 +53,7 @@ vector_store = Neo4jVector.from_documents(
     url=NEO4J_URI,
     username=NEO4J_USERNAME,
     password=NEO4J_PASSWORD,
-    database=NEO4J_USERNAME,
+    database=NEO4J_DATABASE,
     index_name="test_index",
     node_label="Chunk",
     text_node_property="text",
@@ -96,7 +96,7 @@ chain = GraphCypherQAChain.from_llm(
     allow_dangerous_requests=True,  # Bạn cần cấp quyền này để chain thực thi truy vấn Cypher
 )
 
-answer = chain.invoke({"query": "Mon gi day ?"})
+answer = chain.invoke({"query": "Quý là ai ?"})
 print(answer["result"])
 
 # from src.settings import NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD

@@ -202,3 +202,4 @@ LOGGING = {
 NEO4J_URI = config("NEO4J_URI", default="localhost:7687")
 NEO4J_USERNAME = config("NEO4J_USERNAME", default="neo4j")
 NEO4J_PASSWORD = config("NEO4J_PASSWORD", default="neo4j")
+NEO4J_DATABASE = config("NEO4J_DATABASE", default="neo4j")
