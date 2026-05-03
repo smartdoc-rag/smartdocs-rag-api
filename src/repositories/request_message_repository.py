@@ -33,3 +33,14 @@ class RequestMessageRepository(BaseRepository[RequestMessage]):
         return list(self.model_class.objects.filter(
             conversation_id=conversation_id
         ).order_by('-id')[:limit])
+
+    def count_by_conversation(self, conversation_id: int) -> int:
+        return self.model_class.objects.filter(conversation_id=conversation_id).count()
+
+    def get_paginated(self, conversation_id: int, skip: int, limit: int):
+        return self.model_class.objects.filter(
+            conversation_id=conversation_id
+        ).order_by('-created_at')[skip:skip + limit]
+
+    def delete_by_conversation(self, conversation_id: int):
+        self.model_class.objects.filter(conversation_id=conversation_id).delete()

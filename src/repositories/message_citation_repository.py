@@ -24,3 +24,11 @@ class MessageCitationRepository(BaseRepository[MessageCitation]):
     ) -> MessageCitation | None:
         """Lấy citation theo ID và response_message_id"""
         return self.get_one(id=citation_id, response_message_id=response_message_id)
+
+    def get_by_response(self, response_message_id: int):
+        """
+        Lấy tất cả citation của một response.
+        """
+        return self.model_class.objects.filter(
+            response_message_id=response_message_id
+        ).order_by('id')

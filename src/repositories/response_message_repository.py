@@ -38,3 +38,8 @@ class ResponseMessageRepository(BaseRepository[ResponseMessage]):
 
     def delete_by_request_message_id(self, request_message_id: int):
         self.model_class.objects.filter(request_message_id=request_message_id).delete()
+
+    def get_by_request(self, request_message_id: int):
+        return self.model_class.objects.filter(
+            request_message_id=request_message_id
+        ).order_by('created_at')

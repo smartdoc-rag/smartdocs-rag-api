@@ -190,13 +190,87 @@ class ChatService:
         return req_msg
 
     def _get_chat_history(self, conversation_id):
+        """
+        Trả về list tuple (user_msg, combined_assistant_msg) để dùng làm context.
+        Nếu có nhiều response (dual mode), ghép lại với nhãn rõ ràng.
+        """
         chat_history = []
         recent_requests = self.req_repo.get_recent(conversation_id, limit=5)
         for req in reversed(recent_requests):
-            resp = self.resp_repo.get_one(request_message_id=req.id)
-            if resp:
-                chat_history.append((req.content, resp.content))
+            responses = self.resp_repo.get_by_request(req.id)  # tất cả response
+            if not responses:
+                continue
+
+            # Gộp các response thành 1 chuỗi
+            parts = []
+            for r in responses:
+                if r.type == "rag":
+                    parts.append(f"[RAG] {r.content}")
+                elif r.type == "graphrag":
+                    parts.append(f"[GraphRAG] {r.content}")
+                else:
+                    parts.append(r.content)  # fallback
+            combined_answer = "\n".join(parts)
+
+            chat_history.append((req.content, combined_answer))
         return chat_history
+
+    def _get_citations_for_response(self, response):
+        citations = self.citation_repo.get_by_response(response.id)
+        result = []
+        for cit in citations:
+            if cit.file:
+                result.append({
+                    "file_name": cit.file.file_name,
+                    "page": cit.page_number,
+                    "chunk": cit.content_chunk,
+                    "marker": cit.citation_marker,
+                    "start_line": cit.start_line,
+                    "end_line": cit.end_line,
+                })
+            else:
+                result.append({
+                    "marker": cit.citation_marker,
+                    "graph_entity_name": cit.graph_entity_name,
+                    "graph_entity_type": cit.graph_entity_type,
+                })
+        return result
+
+    def _get_word_count_for_response(self, response):
+        stat = self.stat_repo.get_by_response(response.id)  # gọi hàm mới
+        return stat.word_count if stat else 0
+
+    def get_history(self, conversation_id: int, user_id: int, skip: int, limit: int):
+        # Kiểm tra quyền truy cập conversation
+        conv = self.conv_repo.get_user_conversation_by_id(user_id, conversation_id)
+        if not conv:
+            raise PermissionError("Không có quyền truy cập cuộc hội thoại")
+
+        # Lấy tổng số request (để phân trang)
+        total_requests = self.req_repo.count_by_conversation(conversation_id)
+
+        # Lấy danh sách request theo phân trang (giả sử repo có hàm)
+        requests = self.req_repo.get_paginated(conversation_id, skip, limit)
+
+        history = []
+        for req in requests:
+            responses = self.resp_repo.get_by_request(req.id)
+            history.append({
+                "request_id": req.id,
+                "question": req.content,
+                "created_at": req.created_at.isoformat() if req.created_at else None,
+                "responses": [
+                    {
+                        "response_id": r.id,
+                        "type": r.type,  # "rag" hoặc "graphrag"
+                        "content": r.content,
+                        "citations": self._get_citations_for_response(r),
+                        "word_count": self._get_word_count_for_response(r),
+                        "created_at": r.created_at.isoformat() if r.created_at else None,
+                    } for r in responses
+                ]
+            })
+        return history, total_requests
 
     def _retrieve_and_rerank(self, final_question, conversation_id, selected_file_ids, search_type,
                              use_reranking, top_k, use_self_rag):
@@ -368,24 +442,82 @@ class ChatService:
             temp_svc = RAGService()
             final_question = temp_svc.rewrite_query(question, chat_history)
 
-        # 3. Dual mode — không lưu DB, chỉ trả kết quả so sánh
+        # 3. Dual mode
         if response_type == "dual":
+            # 1. Tính toán hai pipeline (không lưu DB)
             rag_answer, rag_docs, rag_conf = self._run_rag_pipeline(
                 conversation_id, final_question, selected_file_ids, search_type,
                 use_reranking, top_k, use_self_rag, chat_history
             )
-            rag_citations = self._build_rag_citations(rag_docs, resp_msg=None)
-
             graph_answer, graph_citations_raw, graph_conf = self._run_graph_pipeline(
                 conversation_id, final_question, selected_file_ids,
                 use_self_rag, chat_history
             )
-            graph_citations = self._build_graph_citations(graph_citations_raw, resp_msg=None)
 
+            # 2. Tạo response RAG
+            rag_resp = ResponseMessage(
+                request_message=req_msg,
+                content=rag_answer,
+                type="rag"
+            )
+            rag_resp = self.resp_repo.create(rag_resp)
+
+            # Tạo citations cho RAG (gọi hàm có resp_msg để lưu)
+            rag_citation_objs = self._build_rag_citations(rag_docs, resp_msg=rag_resp)
+
+            # Lưu thống kê
+            self.stat_repo.create(MessageStat(
+                message=rag_resp,
+                word_count=len(rag_answer.split())
+            ))
+
+            # 3. Tạo response GraphRAG
+            graph_resp = ResponseMessage(
+                request_message=req_msg,
+                content=graph_answer,
+                type="graphrag"
+            )
+            graph_resp = self.resp_repo.create(graph_resp)
+
+            # Tạo citations cho GraphRAG
+            graph_citation_objs = self._build_graph_citations(graph_citations_raw, resp_msg=graph_resp)
+
+            # Lưu thống kê
+            self.stat_repo.create(MessageStat(
+                message=graph_resp,
+                word_count=len(graph_answer.split())
+            ))
+
+            # 4. Trả kết quả (giữ nguyên cấu trúc cũ nhưng thêm response_id)
             return {
                 "request_id": req_msg.id,
-                "rag": {"answer": rag_answer, "citations": rag_citations, "confidence": rag_conf},
-                "graph_rag": {"answer": graph_answer, "citations": graph_citations, "confidence": graph_conf},
+                "rag": {
+                    "response_id": rag_resp.id,
+                    "answer": rag_answer,
+                    "citations": [
+                        {
+                            "file_name": c.file.file_name if c.file else None,
+                            "page": c.page_number,
+                            "chunk": c.content_chunk,
+                            "marker": c.citation_marker,
+                            "start_line": c.start_line,
+                            "end_line": c.end_line,
+                        } for c in rag_citation_objs
+                    ],
+                    "confidence": rag_conf,
+                },
+                "graph_rag": {
+                    "response_id": graph_resp.id,
+                    "answer": graph_answer,
+                    "citations": [
+                        {
+                            "marker": c.citation_marker,
+                            "graph_entity_name": c.graph_entity_name,
+                            "graph_entity_type": c.graph_entity_type,
+                        } for c in graph_citation_objs
+                    ],
+                    "confidence": graph_conf,
+                },
                 "rewritten_query": final_question if use_self_rag else None,
             }
 
@@ -455,3 +587,9 @@ class ChatService:
                 "confidence": confidence,
                 "rewritten_query": final_question if use_self_rag else None,
             }
+
+    def clear_history(self, conversation_id: int, user_id: int):
+        # Kiểm tra quyền truy cập (sẽ raise ForbiddenException nếu ko hợp lệ)
+        self._create_conversation_and_check(user_id, conversation_id)
+        # Thực hiện xóa tất cả request (cascade)
+        self.req_repo.delete_by_conversation(conversation_id)
