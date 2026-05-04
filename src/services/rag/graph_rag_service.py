@@ -29,13 +29,14 @@ except ImportError:
 
 class GraphRAGService:
     def __init__(self):
-        self.llm = LLMModel().get_ollama()
+        self.llm = LLMModel().get_openai()
         self.graph = None
         self.graph_error = None
         self.neo4j_available = GRAPHCYPHER_AVAILABLE and NEO4J_CONNECT_AVAILABLE
 
         if not self.neo4j_available:
             import logging
+
             logging.getLogger(__name__).warning(
                 "Neo4j dependencies not available. GraphRAG will be disabled."
             )
@@ -46,9 +47,12 @@ class GraphRAGService:
         except Exception as e:
             self.graph_error = str(e)
             import logging
+
             logging.getLogger(__name__).warning(f"Failed to connect to Neo4j: {e}")
 
-    def _extract_citations_from_result(self, chain_result: Dict[str, Any]) -> List[Dict[str, str]]:
+    def _extract_citations_from_result(
+        self, chain_result: Dict[str, Any]
+    ) -> List[Dict[str, str]]:
         """Trích xuất citations từ kết quả của GraphCypherQAChain.
         Hỗ trợ nhiều dạng record: node object, dict, và chuỗi scalar từ RETURN p.id...
         """
@@ -72,53 +76,63 @@ class GraphRAGService:
             parsed = {}
             alias_type = None  # để suy loại thực thể
             for k, v in record.items():
-                if isinstance(v, str) and '.' in k:
+                if isinstance(v, str) and "." in k:
                     # Key dạng "p.id" -> tách thành base_key "id"
-                    prefix, base_key = k.split('.', 1)
+                    prefix, base_key = k.split(".", 1)
                     parsed[base_key] = v
                     # Thử nhận diện loại thực thể từ prefix
-                    if prefix.lower() in ['p', 'person']:
-                        alias_type = 'Person'
-                    elif prefix.lower() in ['o', 'org', 'organization']:
-                        alias_type = 'Organization'
-                    elif prefix.lower() in ['t', 'tech', 'technology']:
-                        alias_type = 'Technology'
+                    if prefix.lower() in ["p", "person"]:
+                        alias_type = "Person"
+                    elif prefix.lower() in ["o", "org", "organization"]:
+                        alias_type = "Organization"
+                    elif prefix.lower() in ["t", "tech", "technology"]:
+                        alias_type = "Technology"
                     # ... có thể mở rộng thêm
                 else:
                     parsed[k] = v
 
             # Bước 2: Lấy id, name, type, file_id
-            node_id = (parsed.get('id') or
-                       parsed.get('document_id') or
-                       parsed.get('d.id'))  # dạng alias d.id có thể đã được parse
-            name = (parsed.get('name') or
-                    parsed.get('file_name') or
-                    parsed.get('title') or
-                    parsed.get('d.title'))
-            file_id = parsed.get('file_id') or parsed.get('d.file_id') or None
-            entity_type = parsed.get('type') or alias_type or 'Node'
+            node_id = (
+                parsed.get("id") or parsed.get("document_id") or parsed.get("d.id")
+            )  # dạng alias d.id có thể đã được parse
+            name = (
+                parsed.get("name")
+                or parsed.get("file_name")
+                or parsed.get("title")
+                or parsed.get("d.title")
+            )
+            file_id = parsed.get("file_id") or parsed.get("d.file_id") or None
+            entity_type = parsed.get("type") or alias_type or "Node"
 
             # Nếu record chứa trực tiếp một node object (có .id và .labels)
             if len(record) == 1:
                 only_value = list(record.values())[0]
-                if hasattr(only_value, 'id') and hasattr(only_value, 'labels'):
+                if hasattr(only_value, "id") and hasattr(only_value, "labels"):
                     node_id = str(only_value.id)
-                    name = only_value.get('file_name', only_value.get('title', only_value.get('name', ''))) or str(only_value)
-                    entity_type = list(only_value.labels)[0] if only_value.labels else 'Node'
-                    file_id = only_value.get('file_id', None)
+                    name = only_value.get(
+                        "file_name", only_value.get("title", only_value.get("name", ""))
+                    ) or str(only_value)
+                    entity_type = (
+                        list(only_value.labels)[0] if only_value.labels else "Node"
+                    )
+                    file_id = only_value.get("file_id", None)
                 elif isinstance(only_value, dict):
                     # nested dict: lấy từ dict con
-                    node_id = only_value.get('id') or only_value.get('document_id')
-                    name = only_value.get('name') or only_value.get('file_name') or only_value.get('title')
+                    node_id = only_value.get("id") or only_value.get("document_id")
+                    name = (
+                        only_value.get("name")
+                        or only_value.get("file_name")
+                        or only_value.get("title")
+                    )
                     if not name and node_id:
                         name = str(node_id)
-                    file_id = only_value.get('file_id', None)
-                    entity_type = only_value.get('type', 'Document')
+                    file_id = only_value.get("file_id", None)
+                    entity_type = only_value.get("type", "Document")
                 elif isinstance(only_value, str):
                     # Giá trị chuỗi đơn (scalar) – dùng luôn làm id và name
                     node_id = only_value
                     name = only_value
-                    entity_type = alias_type or 'Node'
+                    entity_type = alias_type or "Node"
 
             # Nếu vẫn chưa có name nhưng có id, gán name = id
             if not name and node_id:
@@ -130,12 +144,14 @@ class GraphRAGService:
             if not node_id:
                 continue
 
-            citations.append({
-                "id": node_id,
-                "name": name,
-                "type": entity_type,
-                "file_id": file_id,
-            })
+            citations.append(
+                {
+                    "id": node_id,
+                    "name": name,
+                    "type": entity_type,
+                    "file_id": file_id,
+                }
+            )
 
         # Loại bỏ trùng lặp dựa trên id
         seen = set()
@@ -149,15 +165,21 @@ class GraphRAGService:
                 unique.append(cit)
         return unique
 
-    def _get_cypher_prompt(self, selected_file_ids=None, conversation_id=None) -> PromptTemplate:
+    def _get_cypher_prompt(
+        self, selected_file_ids=None, conversation_id=None
+    ) -> PromptTemplate:
         file_filter = ""
         conv_filter = ""
         if selected_file_ids:
             file_ids_str = ", ".join([str(fid) for fid in selected_file_ids])
             file_filter = (
-                "\n5. CRITICAL: Only query nodes with file_id IN [" + file_ids_str + "]."
+                "\n5. CRITICAL: Only query nodes with file_id IN ["
+                + file_ids_str
+                + "]."
                 "\n   - For Document nodes: WHERE d.file_id IN [" + file_ids_str + "]"
-                "\n   - For entities: ensure connected Document has file_id IN [" + file_ids_str + "]"
+                "\n   - For entities: ensure connected Document has file_id IN ["
+                + file_ids_str
+                + "]"
             )
 
         if conversation_id is not None:
@@ -202,18 +224,21 @@ If you need a name but the node only has an id, use that id as the name.
 """
 
         template = (
-                "Task: Generate Cypher statement to query a graph database.\n"
-                "Instructions:\n"
-                "Use only the provided relationship types and properties in the schema.\n"
-                "Do not use any other relationship types or properties that are not provided.\n"
-                "Schema:\n"
-                "{schema}\n"
-                "Note: Do not include any explanations or apologies in your responses.\n"
-                "Do not include any text except the generated Cypher statement.\n"
-                "For text matching use CONTAINS or toLower(), NOT ILIKE.\n"
-                "If no specific entity is found, fall back to searching Chunk nodes."
-                + conv_filter + file_filter +
-                "\n\n" + examples + "\nThe question is:\n{question}"
+            "Task: Generate Cypher statement to query a graph database.\n"
+            "Instructions:\n"
+            "Use only the provided relationship types and properties in the schema.\n"
+            "Do not use any other relationship types or properties that are not provided.\n"
+            "Schema:\n"
+            "{schema}\n"
+            "Note: Do not include any explanations or apologies in your responses.\n"
+            "Do not include any text except the generated Cypher statement.\n"
+            "For text matching use CONTAINS or toLower(), NOT ILIKE.\n"
+            "If no specific entity is found, fall back to searching Chunk nodes."
+            + conv_filter
+            + file_filter
+            + "\n\n"
+            + examples
+            + "\nThe question is:\n{question}"
         )
 
         return PromptTemplate(input_variables=["schema", "question"], template=template)
@@ -236,26 +261,34 @@ If you need a name but the node only has an id, use that id as the name.
 
     # Các phương thức còn lại giữ nguyên hoàn toàn
     def chat_flow(
-            self,
-            user_input: str,
-            context_docs: Optional[List[Document]] = None,
-            chat_history: Optional[List[Tuple[str, str]]] = None,
-            selected_file_ids: Optional[List[int]] = None,
-            conversation_id=None,
+        self,
+        user_input: str,
+        context_docs: Optional[List[Document]] = None,
+        chat_history: Optional[List[Tuple[str, str]]] = None,
+        selected_file_ids: Optional[List[int]] = None,
+        conversation_id=None,
     ) -> Dict[str, Any]:
         if not self.neo4j_available or self.graph is None:
             from src.services.rag.rag_service import RAGService
+
             rag = RAGService()
-            answer = rag.chat_flow(user_input, context_docs=context_docs, chat_history=chat_history)
+            answer = rag.chat_flow(
+                user_input, context_docs=context_docs, chat_history=chat_history
+            )
             return {"answer": answer, "citations": []}
 
         if context_docs:
             from src.services.rag.rag_service import RAGService
+
             rag = RAGService()
-            answer = rag.chat_flow(user_input, context_docs=context_docs, chat_history=chat_history)
+            answer = rag.chat_flow(
+                user_input, context_docs=context_docs, chat_history=chat_history
+            )
             return {"answer": answer, "citations": []}
 
-        answer, citations = self.query_graph(user_input, selected_file_ids, conversation_id)
+        answer, citations = self.query_graph(
+            user_input, selected_file_ids, conversation_id
+        )
 
         if selected_file_ids:
             str_selected = [str(fid) for fid in selected_file_ids]
@@ -267,11 +300,16 @@ If you need a name but the node only has an id, use that id as the name.
                     filtered_citations.append(cit)  # hoặc bỏ qua tùy ý
             citations = filtered_citations
 
-        citations_output = [{"id": c["id"], "name": c["name"], "type": c["type"]} for c in citations]
+        citations_output = [
+            {"id": c["id"], "name": c["name"], "type": c["type"]} for c in citations
+        ]
         return {"answer": answer, "citations": citations_output}
 
-    def query_graph(self, question: str, selected_file_ids=None, conversation_id=None) -> Tuple[str, List[Dict]]:
+    def query_graph(
+        self, question: str, selected_file_ids=None, conversation_id=None
+    ) -> Tuple[str, List[Dict]]:
         import logging
+
         logger = logging.getLogger(__name__)
 
         try:
@@ -282,9 +320,13 @@ If you need a name but the node only has an id, use that id as the name.
         chain = self._create_chain(selected_file_ids, conversation_id)
         result = chain.invoke({"query": question})
 
-        logger.warning(f"[GraphRAG] intermediate_steps count: {len(result.get('intermediate_steps', []))}")
-        for i, step in enumerate(result.get('intermediate_steps', [])):
-            logger.warning(f"[GraphRAG] step[{i}] keys: {list(step.keys()) if isinstance(step, dict) else type(step)}")
+        logger.warning(
+            f"[GraphRAG] intermediate_steps count: {len(result.get('intermediate_steps', []))}"
+        )
+        for i, step in enumerate(result.get("intermediate_steps", [])):
+            logger.warning(
+                f"[GraphRAG] step[{i}] keys: {list(step.keys()) if isinstance(step, dict) else type(step)}"
+            )
             if isinstance(step, dict) and "query" in step:
                 logger.warning(f"[GraphRAG] generated cypher: {step['query']}")
             if isinstance(step, dict) and "context" in step:
@@ -299,14 +341,15 @@ If you need a name but the node only has an id, use that id as the name.
         return answer, citations
 
     def hybrid_search(
-            self,
-            question: str,
-            vector_docs: List[Document],
-            chat_history: Optional[List[Tuple[str, str]]] = None,
-            selected_file_ids: Optional[List[int]] = None,
+        self,
+        question: str,
+        vector_docs: List[Document],
+        chat_history: Optional[List[Tuple[str, str]]] = None,
+        selected_file_ids: Optional[List[int]] = None,
     ) -> str:
         if not self.neo4j_available or self.graph is None:
             from src.services.rag.rag_service import RAGService
+
             rag = RAGService()
             return rag.chat_flow(
                 question, context_docs=vector_docs, chat_history=chat_history
@@ -315,6 +358,7 @@ If you need a name but the node only has an id, use that id as the name.
         graph_answer = self.query_graph(question, selected_file_ids)
         if not graph_answer or "I don't know" in graph_answer.lower():
             from src.services.rag.rag_service import RAGService
+
             rag = RAGService()
             return rag.chat_flow(
                 question, context_docs=vector_docs, chat_history=chat_history
@@ -322,18 +366,21 @@ If you need a name but the node only has an id, use that id as the name.
         return graph_answer
 
     def rewrite_query(
-            self, original_query: str, chat_history: List[Tuple[str, str]] = None
+        self, original_query: str, chat_history: List[Tuple[str, str]] = None
     ) -> str:
         from src.services.rag.rag_service import RAGService
+
         rag = RAGService()
         return rag.rewrite_query(original_query, chat_history)
 
     def evaluate_answer(self, question: str, answer: str, context: str) -> dict:
         from src.services.rag.rag_service import RAGService
+
         rag = RAGService()
         return rag.evaluate_answer(question, answer, context)
 
     def needs_more_info(self, question: str, answer: str, confidence: int) -> bool:
         from src.services.rag.rag_service import RAGService
+
         rag = RAGService()
         return rag.needs_more_info(question, answer, confidence)
