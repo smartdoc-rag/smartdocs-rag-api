@@ -48,9 +48,6 @@ class GraphRAGService:
             import logging
             logging.getLogger(__name__).warning(f"Failed to connect to Neo4j: {e}")
 
-    # ──────────────────────────────────────────────
-    #  PHẦN SỬA CHÍNH: TRÍCH XUẤT CITATION MỚI
-    # ──────────────────────────────────────────────
     def _extract_citations_from_result(self, chain_result: Dict[str, Any]) -> List[Dict[str, str]]:
         """Trích xuất citations từ kết quả của GraphCypherQAChain.
         Hỗ trợ nhiều dạng record: node object, dict, và chuỗi scalar từ RETURN p.id...
@@ -152,11 +149,9 @@ class GraphRAGService:
                 unique.append(cit)
         return unique
 
-    # ──────────────────────────────────────────────
-    #  PROMPT MỚI VỚI VÍ DỤ FEW‑SHOT
-    # ──────────────────────────────────────────────
-    def _get_cypher_prompt(self, selected_file_ids: Optional[List[int]] = None) -> PromptTemplate:
+    def _get_cypher_prompt(self, selected_file_ids=None, conversation_id=None) -> PromptTemplate:
         file_filter = ""
+        conv_filter = ""
         if selected_file_ids:
             file_ids_str = ", ".join([str(fid) for fid in selected_file_ids])
             file_filter = (
@@ -164,6 +159,13 @@ class GraphRAGService:
                 "\n   - For Document nodes: WHERE d.file_id IN [" + file_ids_str + "]"
                 "\n   - For entities: ensure connected Document has file_id IN [" + file_ids_str + "]"
             )
+
+        if conversation_id is not None:
+            conv_filter = f"\nCRITICAL: All nodes MUST have conversation_id = {conversation_id}. For Chunk: WHERE c.conversation_id = {conversation_id}. For Document: WHERE d.conversation_id = {conversation_id}."
+
+        if selected_file_ids:
+            file_ids_str = ", ".join([str(fid) for fid in selected_file_ids])
+            file_filter = f"\nOnly query nodes with file_id IN [{file_ids_str}]."
 
         # Các ví dụ mẫu (few‑shot) được nhúng trực tiếp
         examples = """
@@ -200,29 +202,28 @@ If you need a name but the node only has an id, use that id as the name.
 """
 
         template = (
-            "Task: Generate Cypher statement to query a graph database.\n"
-            "Instructions:\n"
-            "Use only the provided relationship types and properties in the schema.\n"
-            "Do not use any other relationship types or properties that are not provided.\n"
-            "Schema:\n"
-            "{schema}\n"
-            "Note: Do not include any explanations or apologies in your responses.\n"
-            "Do not include any text except the generated Cypher statement.\n"
-            "For text matching use CONTAINS or toLower(), NOT ILIKE.\n"
-            "If no specific entity is found, fall back to searching Chunk nodes."
-            + file_filter
-            + "\n\n" + examples + "\nThe question is:\n{question}"
+                "Task: Generate Cypher statement to query a graph database.\n"
+                "Instructions:\n"
+                "Use only the provided relationship types and properties in the schema.\n"
+                "Do not use any other relationship types or properties that are not provided.\n"
+                "Schema:\n"
+                "{schema}\n"
+                "Note: Do not include any explanations or apologies in your responses.\n"
+                "Do not include any text except the generated Cypher statement.\n"
+                "For text matching use CONTAINS or toLower(), NOT ILIKE.\n"
+                "If no specific entity is found, fall back to searching Chunk nodes."
+                + conv_filter + file_filter +
+                "\n\n" + examples + "\nThe question is:\n{question}"
         )
 
-        # Prompt chỉ nhận 2 biến: schema (tự động từ Neo4j) và question
         return PromptTemplate(input_variables=["schema", "question"], template=template)
 
-    def _create_chain(self, selected_file_ids: Optional[List[int]] = None):
+    def _create_chain(self, selected_file_ids=None, conversation_id=None):
         if not self.neo4j_available or self.graph is None or GraphCypherQAChain is None:
             raise ValueError(
                 "Neo4j graph not available. Cannot create GraphCypherQAChain."
             )
-        cypher_prompt = self._get_cypher_prompt(selected_file_ids)
+        cypher_prompt = self._get_cypher_prompt(selected_file_ids, conversation_id)
         chain = GraphCypherQAChain.from_llm(
             llm=self.llm,
             graph=self.graph,
@@ -240,6 +241,7 @@ If you need a name but the node only has an id, use that id as the name.
             context_docs: Optional[List[Document]] = None,
             chat_history: Optional[List[Tuple[str, str]]] = None,
             selected_file_ids: Optional[List[int]] = None,
+            conversation_id=None,
     ) -> Dict[str, Any]:
         if not self.neo4j_available or self.graph is None:
             from src.services.rag.rag_service import RAGService
@@ -253,7 +255,7 @@ If you need a name but the node only has an id, use that id as the name.
             answer = rag.chat_flow(user_input, context_docs=context_docs, chat_history=chat_history)
             return {"answer": answer, "citations": []}
 
-        answer, citations = self.query_graph(user_input, selected_file_ids)
+        answer, citations = self.query_graph(user_input, selected_file_ids, conversation_id)
 
         if selected_file_ids:
             str_selected = [str(fid) for fid in selected_file_ids]
@@ -268,8 +270,7 @@ If you need a name but the node only has an id, use that id as the name.
         citations_output = [{"id": c["id"], "name": c["name"], "type": c["type"]} for c in citations]
         return {"answer": answer, "citations": citations_output}
 
-    def query_graph(self, question: str, selected_file_ids: Optional[List[int]] = None) -> Tuple[
-        str, List[Dict[str, str]]]:
+    def query_graph(self, question: str, selected_file_ids=None, conversation_id=None) -> Tuple[str, List[Dict]]:
         import logging
         logger = logging.getLogger(__name__)
 
@@ -278,7 +279,7 @@ If you need a name but the node only has an id, use that id as the name.
         except Exception as se:
             logger.warning(f"[GraphRAG] Could not get schema: {se}")
 
-        chain = self._create_chain(selected_file_ids)
+        chain = self._create_chain(selected_file_ids, conversation_id)
         result = chain.invoke({"query": question})
 
         logger.warning(f"[GraphRAG] intermediate_steps count: {len(result.get('intermediate_steps', []))}")

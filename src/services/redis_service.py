@@ -1,5 +1,4 @@
 import redis
-import os
 import logging
 
 from django.conf import settings
@@ -62,3 +61,7 @@ class RedisService:
         except Exception as e:
             logger.error(f"Error getting files: {e}")
             return []
+
+    def delete_selected_files(self, conversation_id: int):
+        key = f"selected_files:{conversation_id}"
+        self.redis_instance.delete(key)

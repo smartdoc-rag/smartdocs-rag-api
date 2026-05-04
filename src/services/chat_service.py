@@ -404,7 +404,8 @@ class ChatService:
             final_question,
             context_docs=None,
             chat_history=chat_history,
-            selected_file_ids=selected_file_ids
+            selected_file_ids=selected_file_ids,
+            conversation_id=conversation_id
         )
 
         if isinstance(result, dict):

@@ -1,3 +1,4 @@
+import logging
 import os
 import uuid
 from typing import List, Tuple
@@ -192,15 +193,44 @@ class FileService:
         file_obj = self.file_repo.get_one(id=file_id)
         if not file_obj:
             return False
+        conversation_id = file_obj.conversation_id
+
         conv = self.conversation_repo.get_user_conversation_by_id(
-            user_id, file_obj.conversation_id
+            user_id, conversation_id
         )
         if not conv:
             return False
+
+        # 1. Xóa file vật lý
         if os.path.exists(file_obj.file_path):
             os.remove(file_obj.file_path)
+
+        # 2. Xóa record (cascade sẽ tự xóa các Chunk trong DB)
         self.file_repo.delete(file_obj)
-        # Note: Xóa khỏi vector store cần rebuild; tạm thời bỏ qua
+
+        # 3. Xóa các node Neo4j liên quan
+        if self.graph_ingestion_service:
+            try:
+                self.graph_ingestion_service.delete_file_graph(conversation_id, file_id)
+            except Exception as e:
+                logging.getLogger(__name__).warning(
+                    f"Failed to delete Neo4j nodes for file {file_id}: {e}"
+                )
+
+        # 4. Cập nhật Redis selected files (bỏ file_id)
+        try:
+            current_ids = self.redis_service.get_selected_files(conversation_id)
+            if file_id in current_ids:
+                current_ids.remove(file_id)
+                self.redis_service.set_selected_files(conversation_id, current_ids)
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                f"Failed to update Redis selected files: {e}"
+            )
+
+        # 5. Rebuild vector store để loại bỏ các chunk của file đã xóa
+        self._rebuild_vectorstore(conversation_id)
+
         return True
 
     def clear_all_files(self, conversation_id: int, user_id: int) -> bool:
@@ -209,6 +239,18 @@ class FileService:
         )
         if not conv:
             return False
+
+        # 1. Xóa Neo4j graph nếu có service
+        if self.graph_ingestion_service:
+            try:
+                self.graph_ingestion_service.delete_conversation_graph(conversation_id)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    f"Failed to delete Neo4j graph for conv {conversation_id}: {e}"
+                )
+
+        # 2. Xóa file vật lý + record DB (giữ nguyên logic cũ)
         files, _ = self.file_repo.get_by_conversation_and_user(
             conversation_id, user_id, limit=10000
         )
@@ -216,9 +258,42 @@ class FileService:
             if os.path.exists(f.file_path):
                 os.remove(f.file_path)
             self.file_repo.delete(f)
+
+        # 3. Xóa vector store (FAISS)
         vs_path = self._get_vector_store_path(conversation_id)
         if os.path.exists(vs_path):
             import shutil
-
             shutil.rmtree(vs_path)
+
+        # 4. Xóa Redis selected files
+        try:
+            self.redis_service.delete_selected_files(conversation_id)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Failed to delete Redis key for conv {conversation_id}: {e}"
+            )
+
         return True
+
+    def _rebuild_vectorstore(self, conversation_id: int):
+        """Xóa vector store cũ và tạo lại từ tất cả chunk còn lại trong DB."""
+        from langchain_core.documents import Document
+        from langchain_community.vectorstores import FAISS
+
+        vs_path = self._get_vector_store_path(conversation_id)
+        if os.path.exists(vs_path):
+            import shutil
+            shutil.rmtree(vs_path)
+
+        chunks = Chunk.objects.filter(conversation_id=conversation_id)
+        if not chunks:
+            return
+
+        documents = [
+            Document(page_content=chunk.text, metadata=chunk.metadata)
+            for chunk in chunks
+        ]
+
+        vectorstore = FAISS.from_documents(documents, self.embedding)
+        self._save_vectorstore(vectorstore, conversation_id)

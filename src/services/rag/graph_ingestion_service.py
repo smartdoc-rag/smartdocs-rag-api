@@ -40,12 +40,19 @@ class GraphIngestionService:
         )
         return vector_store
 
-    def create_graph_from_documents(self,
-                                    documents: List[Document],
-                                    baseEntityLabel: bool = True,
-                                    include_source: bool = True) -> int:
+    def create_graph_from_documents(self, documents, baseEntityLabel=True, include_source=True):
         llm_transformer = LLMGraphTransformer(llm=self.llm)
         graph_documents = llm_transformer.convert_to_graph_documents(documents)
+
+        for graph_doc in graph_documents:
+            source_metadata = documents[0].metadata if documents else {}
+            conv_id = source_metadata.get("conversation_id")
+            file_id = source_metadata.get("file_id")
+            for node in graph_doc.nodes:
+                if conv_id is not None:
+                    node.properties["conversation_id"] = conv_id
+                if file_id is not None:
+                    node.properties["file_id"] = file_id
 
         self.graph.add_graph_documents(
             graph_documents,
@@ -72,13 +79,36 @@ class GraphIngestionService:
 
         return result
 
-    def clear_graph(self, confirm: bool = False) -> bool:
-        if not confirm:
+    def delete_conversation_graph(self, conversation_id: int) -> bool:
+        if not self.graph:
             return False
-
         try:
-            self.graph.query("MATCH (n) DETACH DELETE n")
+            self.graph.query(
+                "MATCH (n {conversation_id: $conv_id}) DETACH DELETE n",
+                params={"conv_id": conversation_id}
+            )
             return True
         except Exception as e:
-            logging.getLogger(__name__).error(f"Failed to clear graph: {e}")
+            logging.getLogger(__name__).error(...)
+            return False
+
+    def delete_file_graph(self, conversation_id: int, file_id: int) -> bool:
+        if not self.graph:
+            return False
+        try:
+            self.graph.query(
+                """
+                MATCH (c:Chunk {conversation_id: $conv_id, file_id: $file_id})
+                OPTIONAL MATCH (c)-[*0..3]-(n)
+                DETACH DELETE n
+                """,
+                params={"conv_id": conversation_id, "file_id": file_id}
+            )
+            self.graph.query(
+                "MATCH (c:Chunk {conversation_id: $conv_id, file_id: $file_id}) DETACH DELETE c",
+                params={"conv_id": conversation_id, "file_id": file_id}
+            )
+            return True
+        except Exception as e:
+            logging.getLogger(__name__).error(f"Failed to delete graph for file {file_id}: {e}")
             return False
