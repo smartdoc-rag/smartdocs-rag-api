@@ -12,7 +12,7 @@ from src.core.rag.neo4j import neo4j_connect
 
 class GraphIngestionService:
     def __init__(self):
-        self.llm = LLMModel().get_ollama()
+        self.llm = LLMModel().get_openai()
         self.embedding = get_embedding()
         self.graph = None
         try:
@@ -20,12 +20,14 @@ class GraphIngestionService:
         except Exception as e:
             logging.getLogger(__name__).warning(f"Failed to connect to Neo4j: {e}")
 
-    def create_vector_store(self,
-                            documents: List[Document],
-                            index_name: str = "chunk_index",
-                            node_label: str = "Chunk",
-                            text_node_property: str = "text",
-                            embedding_node_property: str = "embedding") -> Optional[Neo4jVector]:
+    def create_vector_store(
+        self,
+        documents: List[Document],
+        index_name: str = "chunk_index",
+        node_label: str = "Chunk",
+        text_node_property: str = "text",
+        embedding_node_property: str = "embedding",
+    ) -> Optional[Neo4jVector]:
         vector_store = Neo4jVector.from_documents(
             embedding=self.embedding,
             documents=documents,
@@ -40,9 +42,21 @@ class GraphIngestionService:
         )
         return vector_store
 
-    def create_graph_from_documents(self, documents, baseEntityLabel=True, include_source=True):
+    def create_graph_from_documents(
+        self, documents, baseEntityLabel=True, include_source=True
+    ):
+        # Proxy tại port 5001 không hỗ trợ function calling (tool use).
+        # LLMGraphTransformer sẽ tự detect và fallback về unstructured mode
+        # dùng json_repair để parse — tự động strip markdown block.
+        # node_properties và relationship_properties PHẢI là False khi không có function calling.
         llm_transformer = LLMGraphTransformer(llm=self.llm)
-        graph_documents = llm_transformer.convert_to_graph_documents(documents)
+        try:
+            graph_documents = llm_transformer.convert_to_graph_documents(documents)
+        except Exception as e:
+            logging.getLogger(__name__).error(
+                f"[GraphIngestion] LLMGraphTransformer failed: {e}"
+            )
+            raise
 
         for graph_doc in graph_documents:
             source_metadata = documents[0].metadata if documents else {}
@@ -57,13 +71,13 @@ class GraphIngestionService:
         self.graph.add_graph_documents(
             graph_documents,
             baseEntityLabel=baseEntityLabel,
-            include_source=include_source
+            include_source=include_source,
         )
         return len(graph_documents)
 
-    def hybrid_ingest(self,
-                      documents: List[Document],
-                      vector_index_name: str = "chunk_index") -> dict:
+    def hybrid_ingest(
+        self, documents: List[Document], vector_index_name: str = "chunk_index"
+    ) -> dict:
         result = {"vector_store_created": False, "graph_documents_count": 0}
         try:
             self.create_vector_store(documents, index_name=vector_index_name)
@@ -85,7 +99,7 @@ class GraphIngestionService:
         try:
             self.graph.query(
                 "MATCH (n {conversation_id: $conv_id}) DETACH DELETE n",
-                params={"conv_id": conversation_id}
+                params={"conv_id": conversation_id},
             )
             return True
         except Exception as e:
@@ -102,13 +116,15 @@ class GraphIngestionService:
                 OPTIONAL MATCH (c)-[*0..3]-(n)
                 DETACH DELETE n
                 """,
-                params={"conv_id": conversation_id, "file_id": file_id}
+                params={"conv_id": conversation_id, "file_id": file_id},
             )
             self.graph.query(
                 "MATCH (c:Chunk {conversation_id: $conv_id, file_id: $file_id}) DETACH DELETE c",
-                params={"conv_id": conversation_id, "file_id": file_id}
+                params={"conv_id": conversation_id, "file_id": file_id},
             )
             return True
         except Exception as e:
-            logging.getLogger(__name__).error(f"Failed to delete graph for file {file_id}: {e}")
+            logging.getLogger(__name__).error(
+                f"Failed to delete graph for file {file_id}: {e}"
+            )
             return False

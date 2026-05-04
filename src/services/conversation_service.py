@@ -25,12 +25,14 @@ class ConversationService:
         else:
             # Thử import và khởi tạo (có thể không có Neo4j)
             try:
-                from src.services.rag.graph_ingestion_service import GraphIngestionService
+                from src.services.rag.graph_ingestion_service import (
+                    GraphIngestionService,
+                )
+
                 self.graph_service = GraphIngestionService()
             except Exception:
                 self.graph_service = None
                 logger.warning("GraphIngestionService not available")
-
 
     # tao session cua user
     def create_conversation(self, user_id: int, title: str = None) -> Conversation:
@@ -98,14 +100,19 @@ class ConversationService:
         if not conversation_id:
             raise ValueError("conversation_id is required")
 
-        conv = self.conversation_repo.get_user_conversation_by_id(user_id, conversation_id)
+        conv = self.conversation_repo.get_user_conversation_by_id(
+            user_id, conversation_id
+        )
         if not conv:
             raise NotFoundException("Không tìm thấy đoạn chat")
 
         # 1. Dọn dẹp tất cả file, vector store, graph, redis
         #    (sử dụng FileService, tự khởi tạo hoặc inject)
         from src.services.file_service import FileService  # nếu chưa import
-        file_svc = FileService()  # có thể tái sử dụng instance nếu đã có, nhưng tạo mới cũng ok
+
+        file_svc = (
+            FileService()
+        )  # có thể tái sử dụng instance nếu đã có, nhưng tạo mới cũng ok
         file_svc.clear_all_files(conversation_id, user_id)
 
         # 2. Xóa conversation (cascade xóa hết request, response, citation, stat, chunk, file records còn sót)

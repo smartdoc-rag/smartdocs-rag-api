@@ -17,9 +17,6 @@ Lịch sử hội thoại:
 Ngữ cảnh:
 {context}
 
-Lịch sử hội thoại:
-{history}
-
 Câu hỏi: {user_input}
 Trả lời:
 """
@@ -33,9 +30,6 @@ Conversation history:
 
 Context:
 {context}
-
-Conversation history:
-{history}
 
 Question: {user_input}
 Answer:

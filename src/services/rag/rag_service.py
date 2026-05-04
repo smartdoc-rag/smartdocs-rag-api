@@ -13,13 +13,16 @@ from src.core.rag.prompt import _is_vietnamese
 
 class RAGService:
     def __init__(self, vectorStoreRetriever: Optional[BaseRetriever] = None):
-        self.llm = LLMModel().get_ollama()
+        self.llm = LLMModel().get_openai()
         self.retriever = vectorStoreRetriever
 
-    def chat_flow(self, user_input: str,
-                  context_docs: Optional[List[Document]] = None,
-                  chat_history: Optional[List[Tuple[str, str]]] = None):
-        # Nếu có context_docs thì dùng, không thì dùng retriever
+    def chat_flow(
+        self,
+        user_input: str,
+        context_docs: Optional[List[Document]] = None,
+        chat_history: Optional[List[Tuple[str, str]]] = None,
+    ):
+        # Context đưa cho LLM — không nhúng marker, tránh LLM biến đổi
         if context_docs is not None:
             context_text = "\n\n".join([doc.page_content for doc in context_docs])
         elif self.retriever:
@@ -38,21 +41,25 @@ class RAGService:
             PROMPT_VI if _is_vietnamese(user_input) else PROMPT_EN
         )
         rag_chain = (
-                {
-                    "context": RunnableLambda(lambda _: context_text),
-                    "history": RunnableLambda(lambda _: history_text),
-                    "user_input": RunnablePassthrough(),
-                }
-                | prompt
-                | self.llm
-                | StrOutputParser()
+            {
+                "context": RunnableLambda(lambda _: context_text),
+                "history": RunnableLambda(lambda _: history_text),
+                "user_input": RunnablePassthrough(),
+            }
+            | prompt
+            | self.llm
+            | StrOutputParser()
         )
         return rag_chain.invoke(user_input)
 
-    def rewrite_query(self, original_query: str, chat_history: List[Tuple[str, str]] = None) -> str:
+    def rewrite_query(
+        self, original_query: str, chat_history: List[Tuple[str, str]] = None
+    ) -> str:
         if not chat_history:
             return original_query
-        history_text = "\n".join([f"Người dùng: {u}\nTrợ lý: {a}" for u, a in chat_history[-3:]])
+        history_text = "\n".join(
+            [f"Người dùng: {u}\nTrợ lý: {a}" for u, a in chat_history[-3:]]
+        )
         prompt = f"""Viết lại câu hỏi sau thành một câu hỏi độc lập, rõ ràng, bao gồm đầy đủ ngữ cảnh từ lịch sử hội thoại. Chỉ trả về câu hỏi đã viết lại, không giải thích.
 
     Lịch sử:
@@ -79,6 +86,7 @@ class RAGService:
         response = self.llm.invoke(prompt)
         try:
             import json
+
             return json.loads(response)
         except:
             return {"confidence": 50, "is_relevant": True, "missing_info": None}

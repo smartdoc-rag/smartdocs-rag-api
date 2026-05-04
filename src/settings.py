@@ -9,6 +9,7 @@ https://docs.djangoproject.com/en/6.0/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
+
 from pathlib import Path
 from decouple import config
 from urllib.parse import urlparse
@@ -101,9 +102,7 @@ CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": config("REDIS_URL"),
-        "OPTIONS": {
-            "CLIENT_CLASS": "django_redis.client.DefaultClient"
-        }
+        "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
     }
 }
 
@@ -203,3 +202,6 @@ NEO4J_URI = config("NEO4J_URI", default="localhost:7687")
 NEO4J_USERNAME = config("NEO4J_USERNAME", default="neo4j")
 NEO4J_PASSWORD = config("NEO4J_PASSWORD", default="neo4j")
 NEO4J_DATABASE = config("NEO4J_DATABASE", default="neo4j")
+
+ANTHROPIC_API_KEY = config("ANTHROPIC_API_KEY", default="")
+OPENAI_API_KEY = config("OPENAI_API_KEY", default="")
