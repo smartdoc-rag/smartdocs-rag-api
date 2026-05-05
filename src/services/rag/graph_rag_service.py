@@ -29,7 +29,7 @@ except ImportError:
 
 class GraphRAGService:
     def __init__(self):
-        self.llm = LLMModel().get_openai()
+        self.llm = LLMModel().get_ollama()
         self.graph = None
         self.graph_error = None
         self.neo4j_available = GRAPHCYPHER_AVAILABLE and NEO4J_CONNECT_AVAILABLE

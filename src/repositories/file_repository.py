@@ -27,3 +27,6 @@ class FileRepository(BaseRepository[File]):
     ) -> File | None:
         """Lấy file theo ID và conversation_id"""
         return self.get_one(id=file_id, conversation_id=conversation_id)
+    
+    def get_by_id(self, file_id: int) -> File | None:
+     return self.get_one(id=file_id)

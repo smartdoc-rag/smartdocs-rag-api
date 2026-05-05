@@ -12,7 +12,7 @@ from src.core.rag.neo4j import neo4j_connect
 
 class GraphIngestionService:
     def __init__(self):
-        self.llm = LLMModel().get_openai()
+        self.llm = LLMModel().get_ollama()
         self.embedding = get_embedding()
         self.graph = None
         try:
