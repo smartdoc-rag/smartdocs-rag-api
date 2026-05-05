@@ -22,9 +22,22 @@ class RAGService:
         context_docs: Optional[List[Document]] = None,
         chat_history: Optional[List[Tuple[str, str]]] = None,
     ):
-        # Context đưa cho LLM — không nhúng marker, tránh LLM biến đổi
+        # Context đưa cho LLM — kèm metadata (file_name, page) để LLM biết nguồn
         if context_docs is not None:
-            context_text = "\n\n".join([doc.page_content for doc in context_docs])
+            context_parts = []
+            for doc in context_docs:
+                meta = doc.metadata or {}
+                source = meta.get("file_name", meta.get("source", ""))
+                page = meta.get("page", meta.get("page_label", ""))
+                header = ""
+                if source:
+                    header += f"[Tài liệu: {source}"
+                if page:
+                    header += f" | Trang: {page}" if header else f"[Trang: {page}"
+                if header:
+                    header += "]\n"
+                context_parts.append(f"{header}{doc.page_content}")
+            context_text = "\n\n".join(context_parts)
         elif self.retriever:
             retrieved = self.retriever.invoke(user_input)
             context_text = "\n\n".join([doc.page_content for doc in retrieved])

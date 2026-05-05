@@ -36,7 +36,7 @@ class RedisService:
     #             self.redis_instance = None
 
     def __init__(self):
-        self.redis_instance = redis.from_url(settings.CACHES['default']['LOCATION'])
+        self.redis_instance = redis.from_url(settings.CACHES['default']['LOCATION'], decode_responses=True)
 
     def set_selected_files(self, conversation_id, file_ids):
         if not self.redis_instance:
@@ -63,5 +63,5 @@ class RedisService:
             return []
 
     def delete_selected_files(self, conversation_id: int):
-        key = f"selected_files:{conversation_id}"
+        key = f"conversation:{conversation_id}:selected_files"
         self.redis_instance.delete(key)

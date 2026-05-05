@@ -385,7 +385,7 @@ class ChatService:
         if not citations_raw:
             return citations
         for idx, cit_info in enumerate(citations_raw, 1):
-            marker = f"【{idx}†G:{cit_info.get('id')}】"
+            marker = f"【{idx}†G】"
             entity_name = cit_info.get("name", "")
             entity_id = cit_info.get("id")
             entity_type = cit_info.get("type")

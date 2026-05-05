@@ -50,6 +50,28 @@ class GraphRAGService:
 
             logging.getLogger(__name__).warning(f"Failed to connect to Neo4j: {e}")
 
+    @staticmethod
+    def _fix_file_id_in_cypher(cypher: str) -> str:
+        """Post-process Cypher to ensure file_id values are quoted as strings.
+
+        LLM thường sinh file_id IN [34, 35] thay vì file_id IN ["34", "35"]
+        dù prompt đã hướng dẫn, vì Neo4j lưu file_id dạng STRING.
+        """
+        import re
+        # file_id IN [34, 35] -> file_id IN ["34", "35"]
+        cypher = re.sub(
+            r'(file_id\s+IN\s*)\[(\d+(?:\s*,\s*\d+)*)\]',
+            lambda m: m.group(1) + '["' + '", "'.join(x.strip() for x in m.group(2).split(',')) + '"]',
+            cypher,
+        )
+        # file_id = 34 -> file_id = "34"  (chỉ khi vế phải là số nguyên, không phải biểu thức)
+        cypher = re.sub(
+            r'(file_id\s*=\s*)(\d+)\b',
+            lambda m: m.group(1) + '"' + m.group(2) + '"',
+            cypher,
+        )
+        return cypher
+
     def _extract_citations_from_result(
         self, chain_result: Dict[str, Any]
     ) -> List[Dict[str, str]]:
@@ -104,6 +126,13 @@ class GraphRAGService:
             file_id = parsed.get("file_id") or parsed.get("d.file_id") or None
             entity_type = parsed.get("type") or alias_type or "Node"
 
+            # Nếu node_id quá dài (>200), đó là chunk text bị LLM alias
+            # thành id (vd: RETURN c.text AS id). Không dùng làm id citation.
+            if isinstance(node_id, str) and len(node_id) > 200:
+                if not name:
+                    name = node_id[:500]  # Dùng text làm name
+                node_id = node_id[:200]  # Rút gọn id
+
             # Nếu record chứa trực tiếp một node object (có .id và .labels)
             if len(record) == 1:
                 only_value = list(record.values())[0]
@@ -133,6 +162,54 @@ class GraphRAGService:
                     node_id = only_value
                     name = only_value
                     entity_type = alias_type or "Node"
+
+            # Bước 3: Fallback fuzzy — khi LLM dùng alias tùy ý (vd: ProjectId, RelatedEntityId...)
+            # mà không theo convention `AS id, 'Type' AS type`.
+            if not node_id or entity_type == "Node":
+                id_keys = []
+                name_keys = []
+                type_keys = []
+                file_keys = []
+                for k in parsed:
+                    kl = k.lower()
+                    if kl == "file_id" or "fileid" in kl:
+                        file_keys.append(k)
+                    elif kl == "id" or kl.endswith("id") or "entityid" in kl or "relatedid" in kl:
+                        id_keys.append(k)
+                    elif "name" in kl or "title" in kl or kl == "project":
+                        name_keys.append(k)
+                    elif "type" in kl or "label" in kl:
+                        type_keys.append(k)
+
+                if not node_id:
+                    for k in id_keys:
+                        v = parsed.get(k)
+                        if v and isinstance(v, str):
+                            node_id = v
+                            break
+
+                if not name:
+                    for k in name_keys:
+                        v = parsed.get(k)
+                        if v and isinstance(v, str):
+                            name = v
+                            break
+                    if not name and node_id:
+                        name = node_id
+
+                if entity_type == "Node":
+                    for k in type_keys:
+                        v = parsed.get(k)
+                        if v and isinstance(v, str) and v != "__Entity__":
+                            entity_type = v
+                            break
+
+                if not file_id:
+                    for k in file_keys:
+                        v = parsed.get(k)
+                        if v and isinstance(v, str):
+                            file_id = v
+                            break
 
             # Nếu vẫn chưa có name nhưng có id, gán name = id
             if not name and node_id:
@@ -171,23 +248,17 @@ class GraphRAGService:
         file_filter = ""
         conv_filter = ""
         if selected_file_ids:
-            file_ids_str = ", ".join([str(fid) for fid in selected_file_ids])
+            file_ids_quoted = ", ".join([f'"{fid}"' for fid in selected_file_ids])
             file_filter = (
-                "\n5. CRITICAL: Only query nodes with file_id IN ["
-                + file_ids_str
-                + "]."
-                "\n   - For Document nodes: WHERE d.file_id IN [" + file_ids_str + "]"
-                "\n   - For entities: ensure connected Document has file_id IN ["
-                + file_ids_str
-                + "]"
+                f"\nCRITICAL: file_id is stored as STRING in Neo4j. Only query nodes with file_id IN [{file_ids_quoted}]."
+                f"\n   - For Chunk nodes: WHERE c.file_id IN [{file_ids_quoted}]"
+                f"\n   - For Document nodes: WHERE d.file_id IN [{file_ids_quoted}]"
+                f"\n   - For entities: ensure connected Document/Chunk has file_id IN [{file_ids_quoted}]"
+                f"\n   - REMINDER: file_name usually has extension like '.docx', '.pdf'. NEVER use exact match with `=` or `toLower(x) = '...'`; ALWAYS use `CONTAINS` for file_name."
             )
 
         if conversation_id is not None:
             conv_filter = f"\nCRITICAL: All nodes MUST have conversation_id = {conversation_id}. For Chunk: WHERE c.conversation_id = {conversation_id}. For Document: WHERE d.conversation_id = {conversation_id}."
-
-        if selected_file_ids:
-            file_ids_str = ", ".join([str(fid) for fid in selected_file_ids])
-            file_filter = f"\nOnly query nodes with file_id IN [{file_ids_str}]."
 
         # Các ví dụ mẫu (few‑shot) được nhúng trực tiếp
         examples = """
@@ -221,6 +292,7 @@ Cypher: MATCH (p:Person)-[:HAS_SKILL]->(s:Skill)
 Always use aliases in RETURN: `RETURN x.property AS id, 'EntityType' AS type`.
 When the question asks about "who", "ai", "tác giả", "author", you MUST search for Person nodes via MENTIONS or HAS_AUTHOR relationships.
 If you need a name but the node only has an id, use that id as the name.
+When returning chunk text, use `c.id AS id, c.text AS text` — NEVER alias chunk text as `id` because it is too long.
 """
 
         template = (
@@ -256,6 +328,7 @@ If you need a name but the node only has an id, use that id as the name.
             verbose=True,
             allow_dangerous_requests=True,
             return_intermediate_steps=True,
+            post_cypher_callback=self._fix_file_id_in_cypher,
         )
         return chain
 
@@ -290,6 +363,19 @@ If you need a name but the node only has an id, use that id as the name.
             user_input, selected_file_ids, conversation_id
         )
 
+        # Fallback: nếu GraphRAG không trả về kết quả (lỗi Cypher, empty, etc.)
+        if not answer:
+            import logging
+            logging.getLogger(__name__).warning(
+                "[GraphRAG] No result from graph query, falling back to vector RAG"
+            )
+            from src.services.rag.rag_service import RAGService
+            rag = RAGService()
+            answer = rag.chat_flow(
+                user_input, context_docs=None, chat_history=chat_history
+            )
+            return {"answer": answer, "citations": []}
+
         if selected_file_ids:
             str_selected = [str(fid) for fid in selected_file_ids]
             filtered_citations = []
@@ -318,7 +404,11 @@ If you need a name but the node only has an id, use that id as the name.
             logger.warning(f"[GraphRAG] Could not get schema: {se}")
 
         chain = self._create_chain(selected_file_ids, conversation_id)
-        result = chain.invoke({"query": question})
+        try:
+            result = chain.invoke({"query": question})
+        except Exception as e:
+            logger.warning(f"[GraphRAG] Cypher execution failed: {e}")
+            return "", []
 
         logger.warning(
             f"[GraphRAG] intermediate_steps count: {len(result.get('intermediate_steps', []))}"

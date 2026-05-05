@@ -23,10 +23,10 @@ class MessageCitation(TimestampModel):
     relevance_score = models.FloatField(null=True, blank=True)
     start_line = models.IntegerField(null=True, blank=True)
     end_line = models.IntegerField(null=True, blank=True)
-    citation_marker = models.CharField(max_length=100, blank=True, help_text="Ví dụ: 【1†L5-L8】")
+    citation_marker = models.TextField(blank=True, help_text="Ví dụ: 【1†L5-L8】")
 
     #Các trường cho GraphRAG
-    graph_entity_id = models.CharField(max_length=255, null=True, blank=True)
+    graph_entity_id = models.TextField(null=True, blank=True)
     graph_entity_name = models.TextField(null=True, blank=True)
     graph_entity_type = models.CharField(max_length=100, null=True, blank=True)
 
