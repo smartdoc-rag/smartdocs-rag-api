@@ -51,13 +51,106 @@ class GraphRAGService:
             logging.getLogger(__name__).warning(f"Failed to connect to Neo4j: {e}")
 
     @staticmethod
+    def _fix_union_columns(cypher: str) -> str:
+        """Fix UNION queries where sub-queries have mismatched column names.
+
+        Neo4j yêu cầu tất cả sub-query trong UNION phải có cùng tên cột.
+        LLM thường sinh UNION với cột khác nhau (vd: 'type' vs 'text').
+        Hàm này chuẩn hóa cột thứ hai cho khớp với cột đầu tiên.
+        """
+        import re
+
+        # Chỉ xử lý nếu có UNION
+        if "UNION" not in cypher.upper():
+            return cypher
+
+        # Tách các phần UNION (UNION hoặc UNION ALL)
+        parts = re.split(r'\bUNION(?:\s+ALL)?\b', cypher, flags=re.IGNORECASE)
+        if len(parts) < 2:
+            return cypher
+
+        # Lấy RETURN columns từ phần đầu tiên
+        first_return_match = re.search(
+            r'\bRETURN\s+(.+?)(?:\s*$)',
+            parts[0],
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if not first_return_match:
+            return cypher
+
+        first_return_body = first_return_match.group(1).strip()
+        # Parse các alias: 'Person' AS type, p.id AS id -> ['type', 'id']
+        first_aliases = re.findall(r'\bAS\s+(\w+)', first_return_body, re.IGNORECASE)
+        if not first_aliases:
+            return cypher
+
+        # Fix các phần UNION tiếp theo
+        fixed_parts = [parts[0]]
+        for part in parts[1:]:
+            return_match = re.search(
+                r'\bRETURN\s+(.+?)(?:\s*$)',
+                part,
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+            if not return_match:
+                fixed_parts.append(part)
+                continue
+
+            return_body = return_match.group(1).strip()
+            # Tách từng biểu thức trong RETURN: "c.id AS id, c.text AS text"
+            # -> ["c.id AS id", "c.text AS text"]
+            return_exprs = re.split(r",\s*(?=(?:[^']*'[^']*')*[^']*$)", return_body)
+
+            if len(return_exprs) != len(first_aliases):
+                # Số cột không khớp — không thể fix tự động, giữ nguyên
+                fixed_parts.append(part)
+                continue
+
+            new_return_items = []
+            for i, expr in enumerate(return_exprs):
+                target_alias = first_aliases[i]
+                # Thay alias hiện tại thành alias của phần đầu
+                new_expr = re.sub(
+                    r'\bAS\s+\w+\s*$',
+                    f'AS {target_alias}',
+                    expr.strip(),
+                    flags=re.IGNORECASE,
+                )
+                # Nếu không có alias, thêm alias
+                if not re.search(r'\bAS\s+\w+\s*$', new_expr, re.IGNORECASE):
+                    new_expr = f"{new_expr} AS {target_alias}"
+                new_return_items.append(new_expr)
+
+            new_return = "RETURN " + ", ".join(new_return_items)
+            fixed_part = re.sub(
+                r'\bRETURN\s+.+?(?:\s*$)',
+                new_return,
+                part,
+                count=1,
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+            fixed_parts.append(fixed_part)
+
+        # Ghép lại với UNION
+        separator = " UNION " if " UNION ALL " not in cypher.upper() else " UNION ALL "
+        return separator.join(fixed_parts)
+
+    @staticmethod
     def _fix_file_id_in_cypher(cypher: str) -> str:
-        """Post-process Cypher to ensure file_id values are quoted as strings.
+        """Post-process Cypher: validate, fix file_id quoting và UNION column mismatch.
 
         LLM thường sinh file_id IN [34, 35] thay vì file_id IN ["34", "35"]
         dù prompt đã hướng dẫn, vì Neo4j lưu file_id dạng STRING.
+        Ngoài ra fix lỗi UNION có số/tên cột không khớp.
         """
         import re
+
+        # Validate & clean first
+        cypher = GraphRAGService._validate_cypher(cypher)
+
+        # Fix UNION columns trước
+        cypher = GraphRAGService._fix_union_columns(cypher)
+
         # file_id IN [34, 35] -> file_id IN ["34", "35"]
         cypher = re.sub(
             r'(file_id\s+IN\s*)\[(\d+(?:\s*,\s*\d+)*)\]',
@@ -70,6 +163,26 @@ class GraphRAGService:
             lambda m: m.group(1) + '"' + m.group(2) + '"',
             cypher,
         )
+        return cypher
+
+    @staticmethod
+    def _validate_cypher(cypher: str) -> str:
+        """Validate and sanitize generated Cypher. Returns fixed Cypher or raises ValueError."""
+        import re
+
+        cypher = cypher.strip()
+        # Remove markdown code fences if LLM wrapped output
+        cypher = re.sub(r'^```(?:cypher)?\s*', '', cypher)
+        cypher = re.sub(r'\s*```$', '', cypher)
+        cypher = cypher.strip()
+
+        if not cypher:
+            raise ValueError("Empty Cypher query")
+
+        # Must start with MATCH or OPTIONAL MATCH
+        if not re.match(r'^\s*(MATCH|OPTIONAL\s+MATCH|CALL)\b', cypher, re.IGNORECASE):
+            raise ValueError(f"Cypher must start with MATCH, got: {cypher[:80]}")
+
         return cypher
 
     def _extract_citations_from_result(
@@ -289,10 +402,21 @@ Cypher: MATCH (p:Person)-[:HAS_SKILL]->(s:Skill)
         WHERE toLower(s.name) = 'python'
         RETURN p.id AS id, 'Person' AS type
 
+Question: "Tell me about Nguyễn Thanh Hiền"
+Cypher: MATCH (d:Document)-[:MENTIONS]->(e)
+        WHERE toLower(e.id) CONTAINS toLower('Nguyễn Thanh Hiền') AND d.conversation_id = 21 AND d.file_id IN ["36"]
+        RETURN e.id AS id, labels(e)[0] AS type
+
 Always use aliases in RETURN: `RETURN x.property AS id, 'EntityType' AS type`.
 When the question asks about "who", "ai", "tác giả", "author", you MUST search for Person nodes via MENTIONS or HAS_AUTHOR relationships.
 If you need a name but the node only has an id, use that id as the name.
-When returning chunk text, use `c.id AS id, c.text AS text` — NEVER alias chunk text as `id` because it is too long.
+
+CRITICAL RULES:
+- NEVER use UNION. It causes column mismatch errors.
+- If you cannot find specific entities, search Chunk nodes INSTEAD (not in addition).
+- Use a SINGLE MATCH pattern. Do not combine multiple MATCH with UNION.
+- When searching for a person/entity by name, use: MATCH (d:Document)-[:MENTIONS]->(e) WHERE toLower(e.id) CONTAINS toLower('name')
+- Return exactly 2 columns: `something AS id, something AS type`. Never return extra columns like `text`.
 """
 
         template = (
@@ -305,7 +429,8 @@ When returning chunk text, use `c.id AS id, c.text AS text` — NEVER alias chun
             "Note: Do not include any explanations or apologies in your responses.\n"
             "Do not include any text except the generated Cypher statement.\n"
             "For text matching use CONTAINS or toLower(), NOT ILIKE.\n"
-            "If no specific entity is found, fall back to searching Chunk nodes."
+            "NEVER use UNION. Use a single MATCH pattern only.\n"
+            "Always return exactly 2 columns: something AS id, something AS type."
             + conv_filter
             + file_filter
             + "\n\n"
