@@ -45,8 +45,10 @@ class ConversationRepository(BaseRepository[Conversation]):
             try:
                 time_str, id_str = cursor.split("_")
                 cursor_time = parse_datetime(time_str)
+                
                 cursor_id = int(id_str)
-
+                print(cursor)
+                print(cursor_time, cursor_id)
                 queryset = queryset.filter(
                     Q(sort_time__lt=cursor_time) |
                     Q(sort_time=cursor_time, id__lt=cursor_id)
