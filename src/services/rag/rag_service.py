@@ -13,7 +13,7 @@ from src.core.rag.prompt import _is_vietnamese
 
 class RAGService:
     def __init__(self, vectorStoreRetriever: Optional[BaseRetriever] = None):
-        self.llm = LLMModel().get_openai()
+        self.llm = LLMModel().get_ollama()
         self.retriever = vectorStoreRetriever
 
     def chat_flow(

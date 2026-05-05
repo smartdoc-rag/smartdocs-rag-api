@@ -252,6 +252,7 @@ class ChatService:
                 result.append(
                     {
                         "file_name": cit.file.file_name,
+                        "file_url": build_url(cit.file.file_path),
                         "page": cit.page_number,
                         "chunk": cit.content_chunk,
                         "marker": cit.citation_marker,
@@ -349,6 +350,7 @@ class ChatService:
             file_id = doc.metadata.get("file_id")
             if file_id:
                 file_obj = self.file_repo.get_one(id=file_id)
+                
                 if file_obj:
                     start_line, end_line = self._extract_citation_line_numbers(doc)
                     marker = self._format_citation_marker(counter, start_line, end_line)
@@ -368,7 +370,8 @@ class ChatService:
                     else:
                         citations.append(
                             {
-                                "file_name": file_obj.file_name,
+                                "file_name": file_obj.file_name,                                
+                                "file_path": file_obj.file_path,                                "file_url":  build_url(file_obj.file_path),
                                 "page": doc.metadata.get("page", 0),
                                 "chunk": doc.page_content,
                                 "marker": marker,
@@ -608,6 +611,7 @@ class ChatService:
                 [
                     {
                         "file_name": c.file.file_name if c.file else "Unknown",
+                        "file_path": build_url(c.file.file_path) if c.file else None,
                         "page": c.page_number,
                         "chunk": c.content_chunk,
                         "marker": c.citation_marker,
@@ -675,7 +679,8 @@ class ChatService:
                 answer,
                 [
                     {
-                        "file_name": c.file.file_name,
+                        "file_name": c.file.file_name if c.file else "Unknown",
+                        "file_path": build_url(c.file.file_path) if c.file else None,
                         "page": c.page_number,
                         "chunk": c.content_chunk,
                         "marker": c.citation_marker,
@@ -749,3 +754,9 @@ class ChatService:
         self._create_conversation_and_check(user_id, conversation_id)
         # Thực hiện xóa tất cả request (cascade)
         self.req_repo.delete_by_conversation(conversation_id)
+        
+
+def build_url(file_path):
+        file = os.path.basename(file_path)
+        print(file)
+        return f"http://127.0.0.1:8000/media/files/{file}"
