@@ -1,3 +1,5 @@
+from langchain_community.graphs.neo4j_graph import node_properties_query
+
 from src.settings import NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD,NEO4J_DATABASE, HF_TOKEN
 from langchain_neo4j import GraphCypherQAChain, Neo4jGraph, Neo4jVector
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -17,7 +19,7 @@ from langchain_ollama import OllamaLLM
 llm = OllamaLLM(model="deepseek-v3.1:671b-cloud", temperature=0, top_p=0.9, repeat_penalty=1.1)
 
 graph_docs_raw = PyPDFLoader(
-    "media/files/e1f790d9-0879-4aeb-b462-a6cded0e17ef_cv.pdf",
+    "media/files/38d36e23-7309-466b-82ac-d848935a6f80_cv.pdf",
 )
 
 MARKDOWN_SEPARATORS = [
