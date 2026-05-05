@@ -1,5 +1,7 @@
 from src.models.request_messages import RequestMessage
 from src.repositories.base import BaseRepository
+from django.db.models import F, Func, Q
+from django.utils.dateparse import parse_datetime
 
 
 class RequestMessageRepository(BaseRepository[RequestMessage]):
@@ -37,10 +39,32 @@ class RequestMessageRepository(BaseRepository[RequestMessage]):
     def count_by_conversation(self, conversation_id: int) -> int:
         return self.model_class.objects.filter(conversation_id=conversation_id).count()
 
-    def get_paginated(self, conversation_id: int, skip: int, limit: int):
-        return self.model_class.objects.filter(
-            conversation_id=conversation_id
-        ).order_by('-created_at')[skip:skip + limit]
+
+    def get_paginated(self, conversation_id: int, cursor: str | None = None, limit: int = 10) :        
+        queryset = (
+            self.model_class.objects
+            .filter(conversation_id=conversation_id)
+            .annotate(sort_time=F("created_at"))
+        )
+
+        if cursor:
+            try:
+                time_str, id_str = cursor.split("_")
+                cursor_time = parse_datetime(time_str)
+                cursor_id = int(id_str)
+                print(cursor_time, cursor_id)
+
+                queryset = queryset.filter(
+                    Q(sort_time__lt=cursor_time) |
+                    Q(sort_time=cursor_time, id__lt=cursor_id)
+                )
+            except Exception:
+                pass  
+
+        queryset = queryset.order_by("-sort_time", "-id")
+
+        return list(queryset[:limit])
+
 
     def delete_by_conversation(self, conversation_id: int):
         self.model_class.objects.filter(conversation_id=conversation_id).delete()

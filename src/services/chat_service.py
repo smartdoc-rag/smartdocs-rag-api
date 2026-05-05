@@ -147,6 +147,17 @@ class ChatService:
         )
         return ensemble
 
+    def _build_response_item(self, resp_msg, content, citations, confidence, type_):
+        return {
+            "response_id": resp_msg.id,
+            "type": type_,
+            "content": content,
+            "citations": citations,
+            "word_count": len(content.split()),
+            "created_at": resp_msg.created_at,
+            "confidence": confidence,
+        }
+
     def _get_line_numbers(self, content: str, char_index: int) -> int:
         """Tính số dòng (1-indexed) từ vị trí ký tự trong nội dung."""
         if char_index is None or char_index < 0:
@@ -240,25 +251,35 @@ class ChatService:
         stat = self.stat_repo.get_by_response(response.id)  # gọi hàm mới
         return stat.word_count if stat else 0
 
-    def get_history(self, conversation_id: int, user_id: int, skip: int, limit: int):
+    def get_history(self, conversation_id: int, user_id: int, cursor: str | None = None, limit: int=10):
         # Kiểm tra quyền truy cập conversation
         conv = self.conv_repo.get_user_conversation_by_id(user_id, conversation_id)
         if not conv:
             raise PermissionError("Không có quyền truy cập cuộc hội thoại")
+        
+        requests = self.req_repo.get_paginated(conversation_id, cursor=cursor, limit=limit+1)
+        has_next = len(requests) > limit
 
-        # Lấy tổng số request (để phân trang)
-        total_requests = self.req_repo.count_by_conversation(conversation_id)
+        if has_next:
+            requests = requests[:limit]
 
-        # Lấy danh sách request theo phân trang (giả sử repo có hàm)
-        requests = self.req_repo.get_paginated(conversation_id, skip, limit)
+        next_cursor = None
+        if requests:
+            last = requests[-1]
+
+            sort_time = last.created_at
+            next_cursor = f"{sort_time.isoformat()}_{last.id}"
 
         history = []
         for req in requests:
-            responses = self.resp_repo.get_by_request(req.id)
+            responses = list(self.resp_repo.get_by_request(req.id))
+            types = {r.type for r in responses}
+            is_dual = types == {"rag", "graphrag"}
             history.append({
                 "request_id": req.id,
                 "question": req.content,
                 "created_at": req.created_at.isoformat() if req.created_at else None,
+                "mode": "dual" if is_dual else "single",
                 "responses": [
                     {
                         "response_id": r.id,
@@ -270,7 +291,7 @@ class ChatService:
                     } for r in responses
                 ]
             })
-        return history, total_requests
+        return history, next_cursor, has_next
 
     def _retrieve_and_rerank(self, final_question, conversation_id, selected_file_ids, search_type,
                              use_reranking, top_k, use_self_rag):
@@ -444,17 +465,18 @@ class ChatService:
 
         # 3. Dual mode
         if response_type == "dual":
-            # 1. Tính toán hai pipeline (không lưu DB)
+            # 1. Run pipelines
             rag_answer, rag_docs, rag_conf = self._run_rag_pipeline(
                 conversation_id, final_question, selected_file_ids, search_type,
                 use_reranking, top_k, use_self_rag, chat_history
             )
+
             graph_answer, graph_citations_raw, graph_conf = self._run_graph_pipeline(
                 conversation_id, final_question, selected_file_ids,
                 use_self_rag, chat_history
             )
 
-            # 2. Tạo response RAG
+            # 2. Create RAG response
             rag_resp = ResponseMessage(
                 request_message=req_msg,
                 content=rag_answer,
@@ -462,16 +484,14 @@ class ChatService:
             )
             rag_resp = self.resp_repo.create(rag_resp)
 
-            # Tạo citations cho RAG (gọi hàm có resp_msg để lưu)
             rag_citation_objs = self._build_rag_citations(rag_docs, resp_msg=rag_resp)
 
-            # Lưu thống kê
             self.stat_repo.create(MessageStat(
                 message=rag_resp,
                 word_count=len(rag_answer.split())
             ))
 
-            # 3. Tạo response GraphRAG
+            # 3. Create GraphRAG response
             graph_resp = ResponseMessage(
                 request_message=req_msg,
                 content=graph_answer,
@@ -479,70 +499,83 @@ class ChatService:
             )
             graph_resp = self.resp_repo.create(graph_resp)
 
-            # Tạo citations cho GraphRAG
-            graph_citation_objs = self._build_graph_citations(graph_citations_raw, resp_msg=graph_resp)
+            graph_citation_objs = self._build_graph_citations(
+                graph_citations_raw,
+                resp_msg=graph_resp
+            )
 
-            # Lưu thống kê
             self.stat_repo.create(MessageStat(
                 message=graph_resp,
                 word_count=len(graph_answer.split())
             ))
 
-            # 4. Trả kết quả (giữ nguyên cấu trúc cũ nhưng thêm response_id)
+            # 4. Build unified response items
+            rag_item = self._build_response_item(
+                rag_resp,
+                rag_answer,
+                [
+                    {
+                        "file_name": c.file.file_name if c.file else "Unknown",
+                        "page": c.page_number,
+                        "chunk": c.content_chunk,
+                        "marker": c.citation_marker,
+                        "start_line": c.start_line,
+                        "end_line": c.end_line,
+                    } for c in rag_citation_objs
+                ],
+                rag_conf,
+                "rag"
+            )
+
+            graph_item = self._build_response_item(
+                graph_resp,
+                graph_answer,
+                [
+                    {
+                        "marker": c.citation_marker,
+                        "graph_entity_name": c.graph_entity_name,
+                        "graph_entity_type": c.graph_entity_type,
+                    } for c in graph_citation_objs
+                ],
+                graph_conf,
+                "graphrag"
+            )
+
+            # 5. Final unified response
             return {
                 "request_id": req_msg.id,
-                "rag": {
-                    "response_id": rag_resp.id,
-                    "answer": rag_answer,
-                    "citations": [
-                        {
-                            "file_name": c.file.file_name if c.file else None,
-                            "page": c.page_number,
-                            "chunk": c.content_chunk,
-                            "marker": c.citation_marker,
-                            "start_line": c.start_line,
-                            "end_line": c.end_line,
-                        } for c in rag_citation_objs
-                    ],
-                    "confidence": rag_conf,
-                },
-                "graph_rag": {
-                    "response_id": graph_resp.id,
-                    "answer": graph_answer,
-                    "citations": [
-                        {
-                            "marker": c.citation_marker,
-                            "graph_entity_name": c.graph_entity_name,
-                            "graph_entity_type": c.graph_entity_type,
-                        } for c in graph_citation_objs
-                    ],
-                    "confidence": graph_conf,
-                },
+                "question": req_msg.content,
+                "created_at": req_msg.created_at,
+                "mode": "dual",
+                "responses": [rag_item, graph_item],
                 "rewritten_query": final_question if use_self_rag else None,
             }
 
         # 4. Single mode RAG
         if response_type == "rag":
-            # Chạy pipeline 1 lần duy nhất
             answer, retrieved_docs, confidence = self._run_rag_pipeline(
                 conversation_id, final_question, selected_file_ids, search_type,
                 use_reranking, top_k, use_self_rag, chat_history
             )
 
-            # Tạo response message trước
-            resp_msg = ResponseMessage(request_message=req_msg, content=answer, type=response_type)
+            resp_msg = ResponseMessage(
+                request_message=req_msg,
+                content=answer,
+                type="rag"
+            )
             resp_msg = self.resp_repo.create(resp_msg)
 
-            # Lưu citations vào DB với resp_msg đã có (chỉ gọi 1 lần)
             citations_objs = self._build_rag_citations(retrieved_docs, resp_msg=resp_msg)
 
-            self.stat_repo.create(MessageStat(message=resp_msg, word_count=len(answer.split())))
+            self.stat_repo.create(MessageStat(
+                message=resp_msg,
+                word_count=len(answer.split())
+            ))
 
-            return {
-                "request_id": req_msg.id,
-                "response_id": resp_msg.id,
-                "answer": answer,
-                "citations": [
+            response_item = self._build_response_item(
+                resp_msg,
+                answer,
+                [
                     {
                         "file_name": c.file.file_name,
                         "page": c.page_number,
@@ -552,39 +585,60 @@ class ChatService:
                         "end_line": c.end_line,
                     } for c in citations_objs
                 ],
-                "confidence": confidence,
+                confidence,
+                "rag"
+            )
+
+            return {
+                "request_id": req_msg.id,
+                "question": req_msg.content,
+                "created_at": req_msg.created_at,
+                "mode": "single",
+                "responses": [response_item],
                 "rewritten_query": final_question if use_self_rag else None,
             }
 
         # 5. Single mode GraphRAG
         if response_type == "graph_rag":
-            # Chạy pipeline 1 lần duy nhất
             answer, citations_raw, confidence = self._run_graph_pipeline(
                 conversation_id, final_question, selected_file_ids,
                 use_self_rag, chat_history
             )
 
-            # Tạo response message trước
-            resp_msg = ResponseMessage(request_message=req_msg, content=answer, type=response_type)
+            resp_msg = ResponseMessage(
+                request_message=req_msg,
+                content=answer,
+                type="graph_rag"
+            )
             resp_msg = self.resp_repo.create(resp_msg)
 
-            # Lưu citations vào DB với resp_msg đã có (chỉ gọi 1 lần)
             citations_objs = self._build_graph_citations(citations_raw, resp_msg=resp_msg)
 
-            self.stat_repo.create(MessageStat(message=resp_msg, word_count=len(answer.split())))
+            self.stat_repo.create(MessageStat(
+                message=resp_msg,
+                word_count=len(answer.split())
+            ))
+
+            response_item = self._build_response_item(
+                resp_msg,
+                answer,
+                [
+                    {
+                        "marker": c.citation_marker,
+                        "graph_entity_name": c.graph_entity_name,
+                        "graph_entity_type": c.graph_entity_type,
+                    } for c in citations_objs
+                ],
+                confidence,
+                "graphrag"
+            )
 
             return {
                 "request_id": req_msg.id,
-                "response_id": resp_msg.id,
-                "answer": answer,
-                "citations": [
-                    {
-                        "marker": c.citation_marker if hasattr(c, "citation_marker") else c.get("marker"),
-                        "graph_entity_name": c.graph_entity_name if hasattr(c, "graph_entity_name") else c.get("graph_entity_name"),
-                        "graph_entity_type": c.graph_entity_type if hasattr(c, "graph_entity_type") else c.get("graph_entity_type"),
-                    } for c in citations_objs
-                ],
-                "confidence": confidence,
+                "question": req_msg.content,
+                "created_at": req_msg.created_at,
+                "mode": "single",
+                "responses": [response_item],
                 "rewritten_query": final_question if use_self_rag else None,
             }
 
