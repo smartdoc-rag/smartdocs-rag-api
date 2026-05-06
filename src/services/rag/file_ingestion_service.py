@@ -14,6 +14,7 @@ class FileIngestionService:
             documents=self.text_splitter(documents),
             embedding=embedding,
             distance_strategy=DistanceStrategy.COSINE,
+
         )
         return vectorstore
 
@@ -43,5 +44,5 @@ class FileIngestionService:
         self, vectorstore: FAISS, top_k: int = 3, fetch_k: int = 20
     ) -> BaseRetriever:
         return vectorstore.as_retriever(
-            search_type="similarity", search_kwargs={"k": top_k, "fetch_k": fetch_k}
+            search_type="similarity", search_kwargs={"k": top_k,}
         )

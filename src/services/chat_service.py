@@ -1,5 +1,8 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
+
 from django.conf import settings
+from django.db import connection
 from langchain_classic.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
 from langchain_community.vectorstores import FAISS
@@ -9,11 +12,13 @@ from src.core.rag.embedding_provider import get_embedding
 from src.core.rag.cross_encoder import CrossEncoderReranker
 from src.services.rag.file_ingestion_service import FileIngestionService
 from src.services.rag.rag_service import RAGService
-from src.services.rag.graph_rag_service import GraphRAGService
 from src.repositories.conversation_repository import ConversationRepository
 from src.repositories.request_message_repository import RequestMessageRepository
 from src.repositories.response_message_repository import ResponseMessageRepository
 from src.repositories.file_repository import FileRepository
+from src.services.rag_pipeline import RagPipeline
+from src.services.graph_rag_pipeline import GraphRagPipeline
+
 from src.repositories.request_selected_file_repository import (
     RequestSelectedFileRepository,
 )
@@ -51,6 +56,8 @@ class ChatService:
         self.ingestion_service = ingestion_service
         self.embedding = get_embedding()
         self.reranker = reranker
+        self.rag_pipeline = RagPipeline()
+        self.graph_pipeline = GraphRagPipeline()
 
     def _get_vector_store_path(self, conversation_id: int) -> str:
         return os.path.join(VECTOR_DB_ROOT, f"conv_{conversation_id}")
@@ -315,30 +322,6 @@ class ChatService:
             })
         return history, next_cursor, has_next
 
-    def _retrieve_and_rerank(
-        self,
-        final_question,
-        conversation_id,
-        selected_file_ids,
-        search_type,
-        use_reranking,
-        top_k,
-        use_self_rag,
-    ):
-        retrieve_top_k = top_k * 2 if (use_reranking or use_self_rag) else top_k
-        docs = self._retrieve_chunks_filtered(
-            conversation_id,
-            final_question,
-            top_k=retrieve_top_k,
-            selected_file_ids=selected_file_ids,
-            search_type=search_type,
-        )
-        if use_reranking and docs:
-            docs = self._rerank_docs(final_question, docs, top_k=top_k)
-        elif use_self_rag and not use_reranking:
-            docs = docs[:top_k]
-        return docs
-
     def _build_rag_citations(self, docs, resp_msg=None):
         """Trả về list citations (dạng dict hoặc MessageCitation object nếu có resp_msg)."""
         citations = []
@@ -429,103 +412,6 @@ class ChatService:
             doc for doc in docs if doc.metadata.get("citation_marker") in cited_markers
         ]
 
-    def _run_rag_pipeline(
-        self,
-        conversation_id,
-        final_question,
-        selected_file_ids,
-        search_type,
-        use_reranking,
-        top_k,
-        use_self_rag,
-        chat_history,
-    ):
-        """
-        Chạy RAG pipeline, trả về (answer, retrieved_docs, confidence).
-        Không lưu citations ở đây — việc lưu DB được tách ra ngoài.
-        """
-        svc = RAGService()
-        retrieved_docs = self._retrieve_and_rerank(
-            final_question,
-            conversation_id,
-            selected_file_ids,
-            search_type,
-            use_reranking,
-            top_k,
-            use_self_rag,
-        )
-
-        answer = svc.chat_flow(
-            final_question, context_docs=retrieved_docs, chat_history=chat_history
-        )
-
-        confidence = None
-        if use_self_rag:
-            context_text = (
-                "\n".join([doc.page_content for doc in retrieved_docs])
-                if retrieved_docs
-                else ""
-            )
-            evaluation = svc.evaluate_answer(final_question, answer, context_text)
-            confidence = evaluation.get("confidence")
-
-            # Multi-hop nếu confidence thấp
-            if confidence is not None and confidence < 60:
-                extra_docs = self._retrieve_chunks_filtered(
-                    conversation_id,
-                    f"Cung cấp thêm: {final_question}",
-                    top_k=top_k,
-                    selected_file_ids=selected_file_ids,
-                    search_type=search_type,
-                )
-                if extra_docs:
-                    merged = {d.page_content: d for d in retrieved_docs + extra_docs}
-                    retrieved_docs = list(merged.values())[: top_k * 2]
-                    answer = svc.chat_flow(
-                        final_question,
-                        context_docs=retrieved_docs,
-                        chat_history=chat_history,
-                    )
-
-        return answer, retrieved_docs, confidence
-
-    def _run_graph_pipeline(
-        self,
-        conversation_id,
-        final_question,
-        selected_file_ids,
-        use_self_rag,
-        chat_history,
-    ):
-        """
-        Chạy Graph RAG pipeline, trả về (answer, citations_raw, confidence).
-        Không lưu citations ở đây — việc lưu DB được tách ra ngoài.
-        """
-        svc = GraphRAGService()
-        result = svc.chat_flow(
-            final_question,
-            context_docs=None,
-            chat_history=chat_history,
-            selected_file_ids=selected_file_ids,
-            conversation_id=conversation_id,
-        )
-
-        if isinstance(result, dict):
-            answer = result.get("answer", "")
-            citations_raw = result.get("citations", [])
-        else:
-            answer = result
-            citations_raw = []
-
-        # Tính confidence nếu cần (dùng RAGService vì GraphRAG không có context text)
-        confidence = None
-        if use_self_rag:
-            temp_rag = RAGService()
-            evaluation = temp_rag.evaluate_answer(final_question, answer, "")
-            confidence = evaluation.get("confidence")
-
-        return answer, citations_raw, confidence
-
     def ask(
         self,
         conversation_id,
@@ -552,88 +438,83 @@ class ChatService:
 
         # 3. Dual mode
         if response_type == "dual":
-            # 1. Run pipelines
-            rag_answer, rag_docs, rag_conf = self._run_rag_pipeline(
-                conversation_id,
-                final_question,
-                selected_file_ids,
-                search_type,
-                use_reranking,
-                top_k,
-                use_self_rag,
-                chat_history,
+            # Chuẩn bị dữ liệu cho RAG
+            rag_docs = self._retrieve_and_process(
+                conversation_id, final_question, selected_file_ids,
+                search_type, use_reranking, top_k, use_self_rag,
             )
 
-            graph_answer, graph_citations_raw, graph_conf = self._run_graph_pipeline(
-                conversation_id,
-                final_question,
-                selected_file_ids,
-                use_self_rag,
-                chat_history,
-            )
+            # extra_retriever đặt ngoài để dùng chung
+            def extra_retriever(extra_query):
+                return self._retrieve_chunks_filtered(
+                    conversation_id, extra_query, top_k=top_k,
+                    selected_file_ids=selected_file_ids, search_type=search_type,
+                )
 
-            # 2. Create RAG response
-            rag_resp = ResponseMessage(
-                request_message=req_msg, content=rag_answer, type="rag"
-            )
+            # Định nghĩa task cho từng pipeline
+            def run_rag():
+                connection.close()  # tách connection cho thread
+                return self.rag_pipeline.run(
+                    final_question,
+                    context_docs=rag_docs,
+                    chat_history=chat_history,
+                    use_self_rag=use_self_rag,
+                    top_k=top_k,
+                    extra_retriever=extra_retriever,
+                )
+
+            def run_graph():
+                connection.close()
+                return self.graph_pipeline.run(
+                    final_question,
+                    conversation_id=conversation_id,
+                    selected_file_ids=selected_file_ids,
+                    chat_history=chat_history,
+                    use_self_rag=use_self_rag,
+                )
+
+            # Chạy song song
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                future_rag = executor.submit(run_rag)
+                future_graph = executor.submit(run_graph)
+                rag_answer, rag_final_docs, rag_conf = future_rag.result()
+                graph_answer, graph_citations_raw, graph_conf = future_graph.result()
+
+            # Lưu response (tuần tự, rất nhanh)
+            rag_resp = ResponseMessage(request_message=req_msg, content=rag_answer, type="rag")
             rag_resp = self.resp_repo.create(rag_resp)
+            rag_citation_objs = self._build_rag_citations(rag_final_docs, resp_msg=rag_resp)
+            self.stat_repo.create(MessageStat(message=rag_resp, word_count=len(rag_answer.split())))
 
-            rag_citation_objs = self._build_rag_citations(rag_docs, resp_msg=rag_resp)
-
-            self.stat_repo.create(MessageStat(
-                message=rag_resp,
-                word_count=len(rag_answer.split())
-            ))
-
-            # 3. Create GraphRAG response
-            graph_resp = ResponseMessage(
-                request_message=req_msg, content=graph_answer, type="graphrag"
-            )
+            graph_resp = ResponseMessage(request_message=req_msg, content=graph_answer, type="graphrag")
             graph_resp = self.resp_repo.create(graph_resp)
+            graph_citation_objs = self._build_graph_citations(graph_citations_raw, resp_msg=graph_resp)
+            self.stat_repo.create(MessageStat(message=graph_resp, word_count=len(graph_answer.split())))
 
-            graph_citation_objs = self._build_graph_citations(
-                graph_citations_raw,
-                resp_msg=graph_resp
-            )
-
-            self.stat_repo.create(MessageStat(
-                message=graph_resp,
-                word_count=len(graph_answer.split())
-            ))
-
-            # 4. Build unified response items
+            # Build response items (giữ nguyên code cũ)
             rag_item = self._build_response_item(
-                rag_resp,
-                rag_answer,
-                [
-                    {
-                        "file_name": c.file.file_name if c.file else "Unknown",
-                        "page": c.page_number,
-                        "chunk": c.content_chunk,
-                        "marker": c.citation_marker,
-                        "start_line": c.start_line,
-                        "end_line": c.end_line,
-                    } for c in rag_citation_objs
-                ],
-                rag_conf,
-                "rag"
+                rag_resp, rag_answer,
+                [{
+                    "file_name": c.file.file_name if c.file else "Unknown",
+                    "page": c.page_number,
+                    "chunk": c.content_chunk,
+                    "marker": c.citation_marker,
+                    "start_line": c.start_line,
+                    "end_line": c.end_line,
+                } for c in rag_citation_objs],
+                rag_conf, "rag"
             )
 
             graph_item = self._build_response_item(
-                graph_resp,
-                graph_answer,
-                [
-                    {
-                        "marker": c.citation_marker,
-                        "graph_entity_name": c.graph_entity_name,
-                        "graph_entity_type": c.graph_entity_type,
-                    } for c in graph_citation_objs
-                ],
-                graph_conf,
-                "graphrag"
+                graph_resp, graph_answer,
+                [{
+                    "marker": c.citation_marker,
+                    "graph_entity_name": c.graph_entity_name,
+                    "graph_entity_type": c.graph_entity_type,
+                } for c in graph_citation_objs],
+                graph_conf, "graphrag"
             )
 
-            # 5. Final unified response
             return {
                 "request_id": req_msg.id,
                 "question": req_msg.content,
@@ -644,48 +525,43 @@ class ChatService:
             }
 
         # 4. Single mode RAG
-        if response_type == "rag":
-            answer, retrieved_docs, confidence = self._run_rag_pipeline(
-                conversation_id,
+        elif response_type == "rag":
+            docs = self._retrieve_and_process(
+                conversation_id, final_question, selected_file_ids,
+                search_type, use_reranking, top_k, use_self_rag,
+            )
+
+            def extra_retriever(q):
+                return self._retrieve_chunks_filtered(
+                    conversation_id, q, top_k=top_k,
+                    selected_file_ids=selected_file_ids, search_type=search_type,
+                )
+
+            answer, final_docs, confidence = self.rag_pipeline.run(
                 final_question,
-                selected_file_ids,
-                search_type,
-                use_reranking,
-                top_k,
-                use_self_rag,
-                chat_history,
+                context_docs=docs,
+                chat_history=chat_history,
+                use_self_rag=use_self_rag,
+                top_k=top_k,
+                extra_retriever=extra_retriever,
             )
 
-            resp_msg = ResponseMessage(
-                request_message=req_msg,
-                content=answer,
-                type="rag"
-            )
+            resp_msg = ResponseMessage(request_message=req_msg, content=answer, type="rag")
             resp_msg = self.resp_repo.create(resp_msg)
-
-            citations_objs = self._build_rag_citations(retrieved_docs, resp_msg=resp_msg)
-
-            self.stat_repo.create(MessageStat(
-                message=resp_msg,
-                word_count=len(answer.split())
-            ))
+            citations_objs = self._build_rag_citations(final_docs, resp_msg=resp_msg)
+            self.stat_repo.create(MessageStat(message=resp_msg, word_count=len(answer.split())))
 
             response_item = self._build_response_item(
-                resp_msg,
-                answer,
-                [
-                    {
-                        "file_name": c.file.file_name,
-                        "page": c.page_number,
-                        "chunk": c.content_chunk,
-                        "marker": c.citation_marker,
-                        "start_line": c.start_line,
-                        "end_line": c.end_line,
-                    }
-                    for c in citations_objs
-                ],
-                confidence,
-                "rag"
+                resp_msg, answer,
+                [{
+                    "file_name": c.file.file_name,
+                    "page": c.page_number,
+                    "chunk": c.content_chunk,
+                    "marker": c.citation_marker,
+                    "start_line": c.start_line,
+                    "end_line": c.end_line,
+                } for c in citations_objs],
+                confidence, "rag"
             )
 
             return {
@@ -698,28 +574,19 @@ class ChatService:
             }
 
         # 5. Single mode GraphRAG
-        if response_type == "graph_rag":
-            answer, citations_raw, confidence = self._run_graph_pipeline(
-                conversation_id,
+        elif response_type == "graph_rag":
+            answer, citations_raw, confidence = self.graph_pipeline.run(
                 final_question,
-                selected_file_ids,
-                use_self_rag,
-                chat_history,
+                conversation_id=conversation_id,
+                selected_file_ids=selected_file_ids,
+                chat_history=chat_history,
+                use_self_rag=use_self_rag,
             )
 
-            resp_msg = ResponseMessage(
-                request_message=req_msg,
-                content=answer,
-                type="graph_rag"
-            )
+            resp_msg = ResponseMessage(request_message=req_msg, content=answer, type="graph_rag")
             resp_msg = self.resp_repo.create(resp_msg)
-
             citations_objs = self._build_graph_citations(citations_raw, resp_msg=resp_msg)
-
-            self.stat_repo.create(MessageStat(
-                message=resp_msg,
-                word_count=len(answer.split())
-            ))
+            self.stat_repo.create(MessageStat(message=resp_msg, word_count=len(answer.split())))
 
             response_item = self._build_response_item(
                 resp_msg,
@@ -749,3 +616,31 @@ class ChatService:
         self._create_conversation_and_check(user_id, conversation_id)
         # Thực hiện xóa tất cả request (cascade)
         self.req_repo.delete_by_conversation(conversation_id)
+
+    def _retrieve_and_process(
+            self,
+            conversation_id,
+            query,
+            selected_file_ids,
+            search_type,
+            use_reranking,
+            top_k,
+            use_self_rag,
+    ):
+        """
+        Retrieve, tuỳ chọn rerank, và cắt về số lượng phù hợp.
+        Trả về danh sách Document đã xử lý.
+        """
+        fetch_k = top_k * 2 if (use_reranking or use_self_rag) else top_k
+        docs = self._retrieve_chunks_filtered(
+            conversation_id,
+            query,
+            top_k=fetch_k,
+            selected_file_ids=selected_file_ids,
+            search_type=search_type,
+        )
+        if use_reranking and docs:
+            docs = self._rerank_docs(query, docs, top_k=top_k)
+        elif use_self_rag and not use_reranking:
+            docs = docs[:top_k]
+        return docs
