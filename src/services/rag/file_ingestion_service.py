@@ -1,4 +1,3 @@
-from pprint import pprint
 from langchain_core.documents import Document
 from langchain_community.vectorstores import FAISS
 from langchain_core.retrievers import BaseRetriever

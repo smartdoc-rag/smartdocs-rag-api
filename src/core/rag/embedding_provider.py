@@ -15,5 +15,7 @@ def get_embedding() -> HuggingFaceEmbeddings:
                     model_name="sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
                     model_kwargs={"device": "cpu", "token": settings.HF_TOKEN},
                     encode_kwargs={"normalize_embeddings": False},
+                    multi_process=True,
+                    show_progress=True,
                 )
     return _embedding

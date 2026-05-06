@@ -8,7 +8,7 @@ from django.conf import settings
 class LLMModel:
     @staticmethod
     def get_ollama(
-        model: str = "qwen2.5:3b",
+        model: str = "gpt-oss:120b-cloud",
         temperature: float = 0,
         top_p: float = 0.9,
         repeat_penalty: float = 1.1,

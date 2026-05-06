@@ -158,7 +158,6 @@ class FileService:
                     print(neo4j_result)
                 except Exception as e:
                     neo4j_result = {"error": str(e)}
-                    # Log nhưng không fail
                     import logging
                     logging.getLogger(__name__).warning(f"Failed to ingest to Neo4j: {e}")
 
