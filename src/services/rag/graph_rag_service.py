@@ -377,6 +377,11 @@ class GraphRAGService:
         examples = """
 Examples of how to answer questions using the graph:
 
+Question: "Bộ dữ liệu thử nghiệm gồm những gì?"
+Cypher: MATCH (c:Chunk) 
+        WHERE toLower(c.text) CONTAINS toLower('bộ dữ liệu') 
+        RETURN c.file_name AS id, 'Chunk' AS type LIMIT 1
+
 Question: "CV nói về ai?"
 Cypher: MATCH (d:Document)-[:MENTIONS]->(p:Person)
         WHERE toLower(d.file_name) CONTAINS 'cv' OR toLower(d.title) CONTAINS 'cv'

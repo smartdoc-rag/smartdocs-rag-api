@@ -1,4 +1,5 @@
-from typing import List, Optional, Tuple, Dict, Any
+from typing import Any
+
 from src.services.rag.graph_rag_service import GraphRAGService
 from src.services.rag.rag_service import RAGService
 
@@ -19,7 +20,7 @@ class GraphRagPipeline:
         selected_file_ids: list,
         chat_history: list,
         use_self_rag: bool = False,
-    ) -> Tuple[str, List[Dict[str, Any]], Optional[float]]:
+    ) -> tuple[dict[str, Any] | Any, list[Any] | Any, Any | None]:
         """
         Returns:
             (answer, citations_raw, confidence)

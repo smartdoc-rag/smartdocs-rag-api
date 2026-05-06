@@ -1,5 +1,3 @@
-from langchain_community.graphs.neo4j_graph import node_properties_query
-
 from src.settings import NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD,NEO4J_DATABASE, HF_TOKEN
 from langchain_neo4j import GraphCypherQAChain, Neo4jGraph, Neo4jVector
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -73,20 +71,23 @@ from langchain_core.prompts import PromptTemplate
 cypher_prompt = PromptTemplate(
     input_variables=["schema", "question"],
     template="""
-    You are a Neo4j expert. Given the following graph schema:
-    {schema}
+Bạn là chuyên gia Neo4j. Viết **chỉ một câu lệnh Cypher** để trả lời câu hỏi từ lược đồ sau:
+{schema}
 
-    Instructions:
-    1. Focus on finding entities (like Person, Organization, etc.) that match the keywords in the question.
-    2. If you find an entity, also look for its relationships to understand the context.
-    3. Use ILIKE or CONTAINS for flexible string matching.
-    4. If no specific entity is found, fall back to searching in 'Chunk' nodes.
+Quy tắc bắt buộc:
+1. Nếu câu hỏi tìm thông tin miêu tả, tổng quan, không nhắc đến thực thể cụ thể, hãy TÌM TRONG node `Chunk` sử dụng `WHERE c.text CONTAINS <keyword>`.
+   - Ví dụ: MATCH (c:Chunk) WHERE c.text CONTAINS 'bộ dữ liệu' RETURN c.text AS answer, c.file_name AS source, c.page AS page
+2. Chỉ tìm thực thể (Person, Organization, v.v.) khi câu hỏi nhắc đến tên riêng.
+3. TUYỆT ĐỐI KHÔNG dùng OPTIONAL MATCH trên một biến đã là danh sách (List). Nếu cần duyệt danh sách, dùng UNWIND trước.
+   - ĐÚNG: WITH collect(n) AS nodes UNWIND nodes AS node OPTIONAL MATCH (node)-[r]-()
+   - SAI: WITH collect(n) AS nodes OPTIONAL MATCH (nodes)-[r]-()
+4. Luôn trả về các trường cần thiết để tạo câu trả lời, ưu tiên kèm theo source (tên file, page) nếu có.
 
-    Question: {question}
-    Cypher Query:
-    """,
+Câu hỏi: {question}
+
+Cypher:
+"""
 )
-
 # Tạo chain
 chain = GraphCypherQAChain.from_llm(
     llm=llm,
