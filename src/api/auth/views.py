@@ -6,7 +6,7 @@ from src.api.auth.RegisterRequest import RegisterRequest
 from src.api.auth.ResetPasswordRequest import ResetPasswordRequest
 from src.api.user.UserResponse import UserResponse
 from src.api._helper import validate_request
-from src.api.deps import auth_service, user_service
+from src.api.deps import auth_service
 from src.core.response import (
     created_response,
     fetched_response,
@@ -38,6 +38,7 @@ class RegisterView(APIView):
 
     def post(self, request):
         data = validate_request(RegisterRequest, request.data)
+        print(data)
         user = auth_service().register(data)
         return created_response(
             data=UserResponse.from_model(user),
@@ -64,7 +65,7 @@ class LoginView(APIView):
 
 class MeView(APIView):
     @require_auth
-    @require_role(['user'])
+    @require_role(["user"])
     def get(self, request):
         # user_obj already attached by require_auth
         return fetched_response(data=UserResponse.from_model(request.user_obj))
@@ -72,7 +73,7 @@ class MeView(APIView):
 
 class ResetPasswordView(APIView):
     @require_auth
-    @require_role(['user'])
+    @require_role(["user"])
     def post(self, request):
         data = validate_request(ResetPasswordRequest, request.data)
         auth_service().reset_password(user_id=request.user_id, **data)

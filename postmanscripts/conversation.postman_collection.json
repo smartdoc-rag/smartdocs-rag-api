@@ -1,0 +1,325 @@
+{
+  "info": {
+    "_postman_id": "c1a2b3d4-e5f6-7890-abcd-ef1234567890",
+    "name": "conversation",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "49473233",
+    "_collection_link": "https://go.postman.co/collection/49473233-c1a2b3d4-e5f6-7890-abcd-ef1234567890?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "get-conversations",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://{{HOST}}:{{PORT}}/api/conversation/",
+          "protocol": "http",
+          "host": [
+            "{{HOST}}"
+          ],
+          "port": "{{PORT}}",
+          "path": [
+            "api",
+            "conversation",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "create-conversation",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"title\": \"New Conversation\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://{{HOST}}:{{PORT}}/api/conversation/create",
+          "protocol": "http",
+          "host": [
+            "{{HOST}}"
+          ],
+          "port": "{{PORT}}",
+          "path": [
+            "api",
+            "conversation",
+            "create"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "update-conversation-title",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"title\": \"Updated Title\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://{{HOST}}:{{PORT}}/api/conversation/1/title",
+          "protocol": "http",
+          "host": [
+            "{{HOST}}"
+          ],
+          "port": "{{PORT}}",
+          "path": [
+            "api",
+            "conversation",
+            "1",
+            "title"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "update-last-chat",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"last_chat\": \"2024-01-01T00:00:00Z\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://{{HOST}}:{{PORT}}/api/conversation/1/last-chat",
+          "protocol": "http",
+          "host": [
+            "{{HOST}}"
+          ],
+          "port": "{{PORT}}",
+          "path": [
+            "api",
+            "conversation",
+            "1",
+            "last-chat"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "delete-conversation",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://{{HOST}}:{{PORT}}/api/conversation/1",
+          "protocol": "http",
+          "host": [
+            "{{HOST}}"
+          ],
+          "port": "{{PORT}}",
+          "path": [
+            "api",
+            "conversation",
+            "1"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "get-chunk-config",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://{{HOST}}:{{PORT}}/api/conversation/1/chunk-config/",
+          "protocol": "http",
+          "host": [
+            "{{HOST}}"
+          ],
+          "port": "{{PORT}}",
+          "path": [
+            "api",
+            "conversation",
+            "1",
+            "chunk-config",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "set-selected-files",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"file_ids\": [1, 2, 3]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://{{HOST}}:{{PORT}}/api/conversation/1/selected-files",
+          "protocol": "http",
+          "host": [
+            "{{HOST}}"
+          ],
+          "port": "{{PORT}}",
+          "path": [
+            "api",
+            "conversation",
+            "1",
+            "selected-files"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "get-selected-files",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://{{HOST}}:{{PORT}}/api/conversation/1/selected-files",
+          "protocol": "http",
+          "host": [
+            "{{HOST}}"
+          ],
+          "port": "{{PORT}}",
+          "path": [
+            "api",
+            "conversation",
+            "1",
+            "selected-files"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}

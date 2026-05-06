@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 from pathlib import Path
 from decouple import config
 from urllib.parse import urlparse
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -31,6 +32,12 @@ ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost").split(",")
 
 # Application definition
 
+
+#Meida
+MEDIA_URL = "/media/files/"
+MEDIA_ROOT = os.path.join(BASE_DIR, "media", "files")
+
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -38,10 +45,11 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django_extensions",
     "rest_framework",
     "corsheaders",
     "src.core",
-    "src.models",
+    "src.models.apps.ModelsConfig",
 ]
 
 MIDDLEWARE = [
@@ -75,7 +83,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "src.wsgi.application"
 
-
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 DJANGO_ENV = config("DJANGO_ENV", default="development")
@@ -98,6 +105,14 @@ DATABASES = {
     }
 }
 
+# Caches
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": config("REDIS_URL"),
+        "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
+    }
+}
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
@@ -118,7 +133,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 REST_FRAMEWORK = {
-    "EXCEPTION_HANDLER": "src.core.exceptions.global_exception_handler",
+    # "EXCEPTION_HANDLER": "src.core.exceptions.global_exception_handler",
 }
 
 MIGRATION_MODULES = {
@@ -135,7 +150,6 @@ USE_I18N = True
 
 USE_TZ = True
 
-
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
@@ -149,8 +163,8 @@ REFRESH_TOKEN_EXPIRE_DAYS = config("REFRESH_TOKEN_EXPIRE_DAYS", default=7, cast=
 
 REFRESH_TOKEN_COOKIES_NAME = "refresh_token"
 REFRESH_TOKEN_COOKIES_HTTPONLY = True
-REFRESH_TOKEN_COOKIES_SAMESITE = "Lax"
-REFRESH_TOKEN_COOKIES_SECURE = not DEBUG
+REFRESH_TOKEN_COOKIES_SAMESITE = "None"
+REFRESH_TOKEN_COOKIES_SECURE = True
 
 # CORS settings
 CORS_ALLOWED_ORIGINS = [
@@ -162,3 +176,40 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOW_CREDENTIALS = True
 
 # Internationalization
+
+HF_TOKEN = config("HF_TOKEN", default="")
+CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+# Logging — show JWT debug in console
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+        },
+    },
+    "formatters": {
+        "verbose": {
+            "format": "[{levelname}] {name}: {message}",
+            "style": "{",
+        }
+    },
+    "loggers": {
+        "src.core.middleware": {
+            "handlers": ["console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+    },
+}
+
+# NEO4J CONFIG
+NEO4J_URI = config("NEO4J_URI", default="localhost:7687")
+NEO4J_USERNAME = config("NEO4J_USERNAME", default="neo4j")
+NEO4J_PASSWORD = config("NEO4J_PASSWORD", default="neo4j")
+NEO4J_DATABASE = config("NEO4J_DATABASE", default="neo4j")
+
+ANTHROPIC_API_KEY = config("ANTHROPIC_API_KEY", default="")
+OPENAI_API_KEY = config("OPENAI_API_KEY", default="")

@@ -16,8 +16,13 @@ Including another URLconf
 """
 
 from django.urls import path, include
+from django.conf import settings
+from django.conf.urls.static import static
 
 urlpatterns = [
     path("api/auth/", include("src.api.auth.urls")),
     path("api/users/", include("src.api.user.urls")),
-]
+    path("api/chat/", include("src.api.chat.urls")),
+    path("api/file/", include("src.api.file.urls")),
+    path("api/conversation/", include("src.api.conversation.urls")),
+]  + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

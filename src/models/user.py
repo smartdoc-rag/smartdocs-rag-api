@@ -4,17 +4,17 @@ from .base import TimestampModel
 
 
 class User(TimestampModel):
-    email = models.EmailField(unique=True, db_index=True)
-    hashed_password = models.CharField(max_length=255)
-    full_name = models.CharField(max_length=100)
+    email = models.EmailField(unique=True, db_index=True, null=False)
+    password_hash = models.CharField(max_length=255, null=False)
+    full_name = models.CharField(max_length=100, blank=True, null=True)
+    role = models.CharField(max_length=20, default='user')
     is_active = models.BooleanField(default=True)
-    role = models.CharField(max_length=20, choices=[('admin', 'Admin'), ('user', 'User')], default='user')
 
     def set_password(self, raw_password):
-        self.hashed_password = make_password(raw_password)
+        self.password_hash = make_password(raw_password)
 
     def check_password(self, raw_password):
-        return check_password(raw_password, self.hashed_password)
+        return check_password(raw_password, self.password_hash)
 
     def __str__(self):
         return f"{self.full_name} ({self.email})"
