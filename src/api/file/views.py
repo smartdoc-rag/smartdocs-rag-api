@@ -80,3 +80,19 @@ class ClearFilesView(APIView):
             return success_response(code=204)
         except PermissionError:
             return error_response({"error": "Access denied"}, code=403)
+
+
+class FileDetailView(APIView):
+    @require_auth
+    @require_role("user")
+    def get(self, request, file_id):
+        data = file_service().get_file_url_by_id(
+            file_id=file_id,
+            user_id=request.user_id,
+            request=request
+        )
+
+        if not data:
+            return error_response({"error": "File not found"}, code=404)
+
+        return success_response(data)

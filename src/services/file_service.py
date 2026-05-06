@@ -18,6 +18,7 @@ from src.services.rag.file_ingestion_service import FileIngestionService
 from src.services.rag.graph_ingestion_service import GraphIngestionService
 from src.core.rag.embedding_provider import get_embedding
 from src.core.exceptions import ForbiddenException
+from urllib.parse import quote
 
 MEDIA_ROOT = os.path.join(settings.BASE_DIR, "media", "files")
 VECTOR_DB_ROOT = os.path.join(settings.BASE_DIR, "vector_db")
@@ -296,3 +297,26 @@ class FileService:
 
         vectorstore = FAISS.from_documents(documents, self.embedding)
         self._save_vectorstore(vectorstore, conversation_id)
+
+
+
+    def get_file_url_by_id(self, file_id: int, user_id: int, request):
+        file_obj = self.file_repo.get_one(id=file_id)
+        if not file_obj:
+            return None
+
+        conv = self.conversation_repo.get_user_conversation_by_id(
+            user_id, file_obj.conversation_id
+        )
+        if not conv:
+            raise ForbiddenException("Không có quyền truy cập file")
+
+        filename = os.path.basename(file_obj.file_path)
+
+        return {
+            "id": file_obj.id,
+            "file_name": file_obj.file_name,
+            "url": f"{request.scheme}://{request.get_host()}/media/files/{quote(filename)}",
+            "file_type": file_obj.file_type,
+            "file_size": file_obj.file_size,
+        }

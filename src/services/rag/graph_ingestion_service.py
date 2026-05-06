@@ -66,7 +66,7 @@ class GraphIngestionService:
                 if conv_id is not None:
                     node.properties["conversation_id"] = conv_id
                 if file_id is not None:
-                    node.properties["file_id"] = file_id
+                    node.properties["file_id"] = str(file_id)
 
         self.graph.add_graph_documents(
             graph_documents,
