@@ -65,13 +65,13 @@ class GraphRAGService:
             return cypher
 
         # Tách các phần UNION (UNION hoặc UNION ALL)
-        parts = re.split(r'\bUNION(?:\s+ALL)?\b', cypher, flags=re.IGNORECASE)
+        parts = re.split(r"\bUNION(?:\s+ALL)?\b", cypher, flags=re.IGNORECASE)
         if len(parts) < 2:
             return cypher
 
         # Lấy RETURN columns từ phần đầu tiên
         first_return_match = re.search(
-            r'\bRETURN\s+(.+?)(?:\s*$)',
+            r"\bRETURN\s+(.+?)(?:\s*$)",
             parts[0],
             flags=re.IGNORECASE | re.DOTALL,
         )
@@ -80,7 +80,7 @@ class GraphRAGService:
 
         first_return_body = first_return_match.group(1).strip()
         # Parse các alias: 'Person' AS type, p.id AS id -> ['type', 'id']
-        first_aliases = re.findall(r'\bAS\s+(\w+)', first_return_body, re.IGNORECASE)
+        first_aliases = re.findall(r"\bAS\s+(\w+)", first_return_body, re.IGNORECASE)
         if not first_aliases:
             return cypher
 
@@ -88,7 +88,7 @@ class GraphRAGService:
         fixed_parts = [parts[0]]
         for part in parts[1:]:
             return_match = re.search(
-                r'\bRETURN\s+(.+?)(?:\s*$)',
+                r"\bRETURN\s+(.+?)(?:\s*$)",
                 part,
                 flags=re.IGNORECASE | re.DOTALL,
             )
@@ -111,19 +111,19 @@ class GraphRAGService:
                 target_alias = first_aliases[i]
                 # Thay alias hiện tại thành alias của phần đầu
                 new_expr = re.sub(
-                    r'\bAS\s+\w+\s*$',
-                    f'AS {target_alias}',
+                    r"\bAS\s+\w+\s*$",
+                    f"AS {target_alias}",
                     expr.strip(),
                     flags=re.IGNORECASE,
                 )
                 # Nếu không có alias, thêm alias
-                if not re.search(r'\bAS\s+\w+\s*$', new_expr, re.IGNORECASE):
+                if not re.search(r"\bAS\s+\w+\s*$", new_expr, re.IGNORECASE):
                     new_expr = f"{new_expr} AS {target_alias}"
                 new_return_items.append(new_expr)
 
             new_return = "RETURN " + ", ".join(new_return_items)
             fixed_part = re.sub(
-                r'\bRETURN\s+.+?(?:\s*$)',
+                r"\bRETURN\s+.+?(?:\s*$)",
                 new_return,
                 part,
                 count=1,
@@ -153,13 +153,16 @@ class GraphRAGService:
 
         # file_id IN [34, 35] -> file_id IN ["34", "35"]
         cypher = re.sub(
-            r'(file_id\s+IN\s*)\[(\d+(?:\s*,\s*\d+)*)\]',
-            lambda m: m.group(1) + '["' + '", "'.join(x.strip() for x in m.group(2).split(',')) + '"]',
+            r"(file_id\s+IN\s*)\[(\d+(?:\s*,\s*\d+)*)\]",
+            lambda m: m.group(1)
+            + '["'
+            + '", "'.join(x.strip() for x in m.group(2).split(","))
+            + '"]',
             cypher,
         )
         # file_id = 34 -> file_id = "34"  (chỉ khi vế phải là số nguyên, không phải biểu thức)
         cypher = re.sub(
-            r'(file_id\s*=\s*)(\d+)\b',
+            r"(file_id\s*=\s*)(\d+)\b",
             lambda m: m.group(1) + '"' + m.group(2) + '"',
             cypher,
         )
@@ -172,15 +175,15 @@ class GraphRAGService:
 
         cypher = cypher.strip()
         # Remove markdown code fences if LLM wrapped output
-        cypher = re.sub(r'^```(?:cypher)?\s*', '', cypher)
-        cypher = re.sub(r'\s*```$', '', cypher)
+        cypher = re.sub(r"^```(?:cypher)?\s*", "", cypher)
+        cypher = re.sub(r"\s*```$", "", cypher)
         cypher = cypher.strip()
 
         if not cypher:
             raise ValueError("Empty Cypher query")
 
         # Must start with MATCH or OPTIONAL MATCH
-        if not re.match(r'^\s*(MATCH|OPTIONAL\s+MATCH|CALL)\b', cypher, re.IGNORECASE):
+        if not re.match(r"^\s*(MATCH|OPTIONAL\s+MATCH|CALL)\b", cypher, re.IGNORECASE):
             raise ValueError(f"Cypher must start with MATCH, got: {cypher[:80]}")
 
         return cypher
@@ -287,7 +290,12 @@ class GraphRAGService:
                     kl = k.lower()
                     if kl == "file_id" or "fileid" in kl:
                         file_keys.append(k)
-                    elif kl == "id" or kl.endswith("id") or "entityid" in kl or "relatedid" in kl:
+                    elif (
+                        kl == "id"
+                        or kl.endswith("id")
+                        or "entityid" in kl
+                        or "relatedid" in kl
+                    ):
                         id_keys.append(k)
                     elif "name" in kl or "title" in kl or kl == "project":
                         name_keys.append(k)
@@ -421,7 +429,8 @@ CRITICAL RULES:
 - If you cannot find specific entities, search Chunk nodes INSTEAD (not in addition).
 - Use a SINGLE MATCH pattern. Do not combine multiple MATCH with UNION.
 - When searching for a person/entity by name, use: MATCH (d:Document)-[:MENTIONS]->(e) WHERE toLower(e.id) CONTAINS toLower('name')
-- Return exactly 2 columns: `something AS id, something AS type`. Never return extra columns like `text`.
+- Return exactly 2 columns: `something AS id, something AS type`.
+- EXCEPTION: If the question contains words like "tóm tắt", "summary", or "summarize", you MUST return a 3rd column for the text. Example: RETURN d.file_name AS id, 'Document' AS type, d.text AS text
 """
 
         template = (
@@ -496,10 +505,12 @@ CRITICAL RULES:
         # Fallback: nếu GraphRAG không trả về kết quả (lỗi Cypher, empty, etc.)
         if not answer:
             import logging
+
             logging.getLogger(__name__).warning(
                 "[GraphRAG] No result from graph query, falling back to vector RAG"
             )
             from src.services.rag.rag_service import RAGService
+
             rag = RAGService()
             answer = rag.chat_flow(
                 user_input, context_docs=None, chat_history=chat_history
